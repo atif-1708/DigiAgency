@@ -28,7 +28,8 @@ export default function Stores() {
   const [newStore, setNewStore] = useState({
     name: '',
     domain: '',
-    token: ''
+    token: '',
+    adAccountId: ''
   });
 
   useEffect(() => {
@@ -66,18 +67,28 @@ export default function Stores() {
 
     setIsAdding(true);
     try {
-      const { error } = await supabase.from('stores').insert({
+      const { data: storeData, error: storeError } = await supabase.from('stores').insert({
         name: newStore.name,
         shopify_domain: newStore.domain,
         shopify_access_token: newStore.token,
         agency_id: profile.agency_id,
         status: 'Connected'
-      });
+      }).select().single();
 
-      if (error) throw error;
+      if (storeError) throw storeError;
 
-      toast.success('Store added successfully');
-      setNewStore({ name: '', domain: '', token: '' });
+      if (newStore.adAccountId) {
+        const { error: adError } = await supabase.from('ad_accounts').insert({
+          store_id: storeData.id,
+          ad_account_id: newStore.adAccountId,
+          name: `${newStore.name} Ad Account`,
+          status: 'Active'
+        });
+        if (adError) throw adError;
+      }
+
+      toast.success('Store and Ad Account connected successfully');
+      setNewStore({ name: '', domain: '', token: '', adAccountId: '' });
       fetchStores();
     } catch (error: any) {
       toast.error('Failed to add store', { description: error.message });
@@ -143,6 +154,16 @@ export default function Stores() {
                     type="password" 
                     value={newStore.token}
                     onChange={e => setNewStore({...newStore, token: e.target.value})}
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="adAccountId">Meta Ad Account ID</Label>
+                  <Input 
+                    id="adAccountId" 
+                    placeholder="act_123456789" 
+                    value={newStore.adAccountId}
+                    onChange={e => setNewStore({...newStore, adAccountId: e.target.value})}
                     required
                   />
                 </div>

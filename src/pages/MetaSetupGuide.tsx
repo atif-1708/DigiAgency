@@ -69,7 +69,7 @@ export default function MetaSetupGuide() {
             </CardHeader>
             <CardContent className="pl-14">
               {step.link && (
-                <Button variant="outline" size="sm" className="gap-2" render={<a href={step.link} target="_blank" rel="noopener noreferrer" />}>
+                <Button variant="outline" size="sm" className="gap-2" render={<a href={step.link} target="_blank" rel="noopener noreferrer" />} nativeButton={false}>
                   Open Meta Developers
                   <ExternalLink className="h-3 w-3" />
                 </Button>
