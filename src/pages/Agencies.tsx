@@ -22,6 +22,14 @@ export default function Agencies() {
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
   const [newAgencyName, setNewAgencyName] = useState('');
+  
+  // Owner form state
+  const [selectedAgency, setSelectedAgency] = useState<any>(null);
+  const [ownerForm, setOwnerForm] = useState({
+    name: '',
+    email: '',
+    password: ''
+  });
 
   useEffect(() => {
     fetchAgencies();
@@ -58,6 +66,36 @@ export default function Agencies() {
       fetchAgencies();
     } catch (error: any) {
       toast.error('Failed to create agency', { description: error.message });
+    } finally {
+      setIsAdding(false);
+    }
+  }
+
+  async function handleAddOwner(e: React.FormEvent) {
+    e.preventDefault();
+    setIsAdding(true);
+    try {
+      const response = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: ownerForm.email,
+          password: ownerForm.password,
+          fullName: ownerForm.name,
+          role: 'agency_admin',
+          agencyId: selectedAgency.id
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to create owner');
+
+      toast.success('Agency Owner added successfully');
+      setOwnerForm({ name: '', email: '', password: '' });
+      setSelectedAgency(null);
+      fetchAgencies();
+    } catch (error: any) {
+      toast.error('Failed to add owner', { description: error.message });
     } finally {
       setIsAdding(false);
     }
@@ -137,9 +175,65 @@ export default function Agencies() {
                   <span className="font-semibold">{agency.profiles?.[0]?.count || 0}</span>
                 </div>
                 
-                <Button variant="outline" className="w-full mt-4">
-                  Manage Agency
-                </Button>
+                <div className="flex gap-2 mt-4">
+                  <Dialog open={selectedAgency?.id === agency.id} onOpenChange={(open) => !open && setSelectedAgency(null)}>
+                    <DialogTrigger render={<Button variant="outline" className="flex-1" onClick={() => setSelectedAgency(agency)} />}>
+                      Add Owner
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                      <form onSubmit={handleAddOwner}>
+                        <DialogHeader>
+                          <DialogTitle>Add Owner to {agency.name}</DialogTitle>
+                          <DialogDescription>
+                            Create a new Agency Admin account for this agency.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                          <div className="grid gap-2">
+                            <Label htmlFor="owner-name">Full Name</Label>
+                            <Input 
+                              id="owner-name" 
+                              placeholder="Agency Owner Name" 
+                              value={ownerForm.name}
+                              onChange={e => setOwnerForm({...ownerForm, name: e.target.value})}
+                              required
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor="owner-email">Email Address</Label>
+                            <Input 
+                              id="owner-email" 
+                              type="email" 
+                              placeholder="owner@agency.com" 
+                              value={ownerForm.email}
+                              onChange={e => setOwnerForm({...ownerForm, email: e.target.value})}
+                              required
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor="owner-password">Initial Password</Label>
+                            <Input 
+                              id="owner-password" 
+                              type="password" 
+                              placeholder="Set a password" 
+                              value={ownerForm.password}
+                              onChange={e => setOwnerForm({...ownerForm, password: e.target.value})}
+                              required
+                            />
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button type="submit" disabled={isAdding}>
+                            {isAdding ? 'Adding...' : 'Create Owner'}
+                          </Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                  <Button variant="ghost" size="icon" className="shrink-0">
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

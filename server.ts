@@ -22,53 +22,50 @@ const supabaseAdmin = createClient(
   }
 );
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+app.use(express.json());
 
-  app.use(express.json());
+// API Routes
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
 
-  // API Routes
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
-  });
+// Direct User Creation API (Admin only)
+app.post("/api/admin/create-user", async (req, res) => {
+  const { email, password, fullName, role, agencyId, identifier } = req.body;
 
-  // Direct User Creation API (Admin only)
-  app.post("/api/admin/create-user", async (req, res) => {
-    const { email, password, fullName, role, agencyId, identifier } = req.body;
+  try {
+    // 1. Create Auth User
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName }
+    });
 
-    try {
-      // 1. Create Auth User
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: { full_name: fullName }
-      });
+    if (authError) throw authError;
 
-      if (authError) throw authError;
+    // 2. Profile is created automatically by DB trigger, but we might need to update role/agency
+    const { error: profileError } = await supabaseAdmin
+      .from("profiles")
+      .update({
+        role,
+        agency_id: agencyId,
+        identifier
+      })
+      .eq("id", authData.user.id);
 
-      // 2. Profile is created automatically by DB trigger, but we might need to update role/agency
-      const { error: profileError } = await supabaseAdmin
-        .from("profiles")
-        .update({
-          role,
-          agency_id: agencyId,
-          identifier
-        })
-        .eq("id", authData.user.id);
+    if (profileError) throw profileError;
 
-      if (profileError) throw profileError;
+    res.json({ success: true, user: authData.user });
+  } catch (error: any) {
+    console.error("Error creating user:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-      res.json({ success: true, user: authData.user });
-    } catch (error: any) {
-      console.error("Error creating user:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+async function setupVite() {
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -81,10 +78,21 @@ async function startServer() {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
-  });
 }
 
-startServer();
+// For local development
+if (!process.env.VERCEL) {
+  const PORT = 3000;
+  setupVite().then(() => {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://0.0.0.0:${PORT}`);
+    });
+  });
+} else {
+  // On Vercel, we still need to serve static files if it's not an API call
+  const distPath = path.join(process.cwd(), "dist");
+  app.use(express.static(distPath));
+  // Note: Vercel routes will handle the fallback usually, but this is a safety net
+}
+
+export default app;

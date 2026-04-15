@@ -81,11 +81,11 @@ export default function Dashboard() {
             Connect your Meta Ads account and Shopify stores to start tracking performance intelligence.
           </p>
           <div className="flex items-center justify-center gap-4">
-            <Button asChild>
-              <a href="/meta-guide">Connect Meta Ads</a>
+            <Button render={<a href="/meta-guide" />}>
+              Connect Meta Ads
             </Button>
-            <Button variant="outline" asChild>
-              <a href="/settings">Configure Shopify</a>
+            <Button variant="outline" render={<a href="/settings" />}>
+              Configure Shopify
             </Button>
           </div>
         </Card>
