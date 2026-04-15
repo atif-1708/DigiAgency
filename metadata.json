@@ -1,0 +1,6 @@
+{
+  "name": "AdIntel - Performance Intelligence for Agencies",
+  "description": "Advanced performance intelligence and analytics system for digital marketing agencies managing Shopify stores and Meta Ads.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["analytics", "integrations", "rbac"]
+}
