@@ -35,6 +35,9 @@ export default function Stores() {
     metaAccessToken: ''
   });
 
+  const [fetchedAdAccounts, setFetchedAdAccounts] = useState<any[]>([]);
+  const [isFetchingAccounts, setIsFetchingAccounts] = useState(false);
+
   useEffect(() => {
     if (profile?.agency_id || profile?.role === 'super_admin') {
       fetchStores();
@@ -58,6 +61,32 @@ export default function Stores() {
       toast.error('Failed to fetch stores', { description: error.message });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleFetchAdAccounts() {
+    if (!newStore.metaAccessToken) {
+      toast.error('Please enter a Meta Access Token first');
+      return;
+    }
+
+    setIsFetchingAccounts(true);
+    try {
+      const response = await fetch('/api/meta/ad-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: newStore.metaAccessToken })
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to fetch ad accounts');
+
+      setFetchedAdAccounts(result.data || []);
+      toast.success(`Fetched ${result.data?.length || 0} ad accounts`);
+    } catch (error: any) {
+      toast.error('Failed to fetch ad accounts', { description: error.message });
+    } finally {
+      setIsFetchingAccounts(false);
     }
   }
 
@@ -172,16 +201,6 @@ export default function Stores() {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="adAccountId">Meta Ad Account ID</Label>
-                  <Input 
-                    id="adAccountId" 
-                    placeholder="act_123456789" 
-                    value={newStore.adAccountId}
-                    onChange={e => setNewStore({...newStore, adAccountId: e.target.value})}
-                    required
-                  />
-                </div>
-                <div className="grid gap-2">
                   <Label htmlFor="metaAppId">Meta App ID</Label>
                   <Input 
                     id="metaAppId" 
@@ -204,15 +223,45 @@ export default function Stores() {
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="metaAccessToken">Meta Access Token</Label>
-                  <Input 
-                    id="metaAccessToken" 
-                    type="password"
-                    placeholder="Meta Access Token" 
-                    value={newStore.metaAccessToken}
-                    onChange={e => setNewStore({...newStore, metaAccessToken: e.target.value})}
-                    required
-                  />
+                  <div className="flex gap-2">
+                    <Input 
+                      id="metaAccessToken" 
+                      type="password"
+                      placeholder="Meta Access Token" 
+                      value={newStore.metaAccessToken}
+                      onChange={e => setNewStore({...newStore, metaAccessToken: e.target.value})}
+                      required
+                    />
+                    <Button 
+                      type="button" 
+                      variant="secondary" 
+                      onClick={handleFetchAdAccounts}
+                      disabled={isFetchingAccounts}
+                    >
+                      {isFetchingAccounts ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Fetch'}
+                    </Button>
+                  </div>
                 </div>
+
+                {fetchedAdAccounts.length > 0 && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="adAccountSelect">Select Ad Account</Label>
+                    <select
+                      id="adAccountSelect"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      value={newStore.adAccountId}
+                      onChange={e => setNewStore({...newStore, adAccountId: e.target.value})}
+                      required
+                    >
+                      <option value="">-- Choose Ad Account --</option>
+                      {fetchedAdAccounts.map(acc => (
+                        <option key={acc.id} value={acc.id}>
+                          {acc.name} ({acc.account_id})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button type="submit" disabled={isAdding}>

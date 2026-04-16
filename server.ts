@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import axios from "axios";
 
 dotenv.config();
 
@@ -28,6 +29,34 @@ app.use(express.json());
 // API Routes
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// Fetch Meta Ad Accounts
+app.post("/api/meta/ad-accounts", async (req, res) => {
+  const { accessToken } = req.body;
+
+  if (!accessToken) {
+    return res.status(400).json({ error: "Access token is required" });
+  }
+
+  try {
+    const response = await axios.get(
+      `https://graph.facebook.com/v19.0/me/adaccounts`,
+      {
+        params: {
+          access_token: accessToken,
+          fields: "name,account_id,id,currency,timezone_name",
+        },
+      }
+    );
+
+    res.json({ success: true, data: response.data.data });
+  } catch (error: any) {
+    console.error("Error fetching Meta ad accounts:", error.response?.data || error.message);
+    res.status(500).json({ 
+      error: error.response?.data?.error?.message || "Failed to fetch ad accounts from Meta" 
+    });
+  }
 });
 
 // Direct User Creation API (Admin only)
