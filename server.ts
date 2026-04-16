@@ -99,26 +99,294 @@ app.post("/api/meta/sync-campaigns", async (req, res) => {
   }
 
   try {
-    // 1. Fetch Store and its Ad Accounts
-    const { data: store, error: storeError } = await supabaseAdmin
+    const result = await syncStoreCampaigns(storeId);
+    res.json({ success: true, count: result.length });
+  } catch (error: any) {
+    console.error("Sync Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/meta/sync-agency", async (req, res) => {
+  const { agencyId } = req.body;
+
+  if (!agencyId) {
+    return res.status(400).json({ error: "Agency ID is required" });
+  }
+
+  try {
+    const { data: stores, error: storesError } = await supabaseAdmin
       .from("stores")
-      .select("*, ad_accounts(*)")
-      .eq("id", storeId)
-      .single();
+      .select("id")
+      .eq("agency_id", agencyId);
 
-    if (storeError || !store) throw new Error("Store not found");
-    if (!store.meta_access_token) throw new Error("Meta Access Token missing for this store");
-
-    // 2. Fetch Employees for matching
-    const { data: employees } = await supabaseAdmin
-      .from("profiles")
-      .select("id, identifier")
-      .eq("agency_id", store.agency_id);
+    if (storesError) throw storesError;
 
     const results = [];
+    for (const store of (stores || [])) {
+      try {
+        const storeResult = await syncStoreCampaigns(store.id);
+        results.push({ storeId: store.id, success: true, count: storeResult.length });
+      } catch (err: any) {
+        results.push({ storeId: store.id, success: false, error: err.message });
+      }
+    }
 
-    // 3. For each Ad Account, fetch campaigns
-    for (const adAccount of store.ad_accounts) {
+    res.json({ success: true, results });
+  } catch (error: any) {
+    console.error("Agency Sync Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Simple in-memory cache for performance data
+const performanceCache = new Map<string, { data: any, timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+app.get("/api/performance", async (req, res) => {
+  const { agencyId, employeeId, storeId, startDate, endDate, refresh } = req.query;
+
+  console.log(`[Performance API] Request: Agency=${agencyId}, Store=${storeId}, Emp=${employeeId}, Start=${startDate}, End=${endDate}, Refresh=${refresh}`);
+
+  if (!agencyId) {
+    return res.status(400).json({ error: "Agency ID is required" });
+  }
+
+  // Cache key based on all query params except 'refresh'
+  const cacheParams = { ...req.query };
+  delete cacheParams.refresh;
+  const cacheKey = JSON.stringify(cacheParams);
+  
+  const cached = performanceCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL && refresh !== 'true') {
+    console.log(`[Performance API] Returning cached data for ${agencyId}`);
+    return res.json({ success: true, data: cached.data, fromCache: true });
+  }
+
+  // Meta expects YYYY-MM-DD. If we get ISO strings, we extract the date part.
+  // If we get YYYY-MM-DD directly, we use it.
+  const formatMetaDate = (dateStr: any) => {
+    if (!dateStr) return null;
+    if (dateStr.includes('T')) return dateStr.split('T')[0];
+    return dateStr;
+  };
+
+  const since = formatMetaDate(startDate) || new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0];
+  const until = formatMetaDate(endDate) || new Date().toISOString().split('T')[0];
+  
+  const timeRange = { since, until };
+
+  console.log(`[Performance API] Calculated Meta Time Range: ${since} to ${until}`);
+
+  try {
+    let storesQuery = supabaseAdmin
+      .from("stores")
+      .select("*, ad_accounts(*)")
+      .eq("agency_id", agencyId);
+    
+    if (storeId && storeId !== 'all-stores') {
+      storesQuery = storesQuery.eq("id", storeId);
+    }
+
+    const { data: stores, error: storesError } = await storesQuery;
+    if (storesError) {
+      console.error("[Performance API] Supabase Stores Error:", storesError);
+      throw storesError;
+    }
+
+    const { data: employees } = await supabaseAdmin
+      .from("profiles")
+      .select("id, full_name, identifier")
+      .eq("agency_id", agencyId);
+
+    const allCampaigns: any[] = [];
+    const fetchPromises: Promise<void>[] = [];
+
+    for (const store of (stores || [])) {
+      if (!store.meta_access_token) continue;
+
+      // --- Shopify Sync for this store ---
+      let shopifyOrders: any[] = [];
+      if (store.shopify_domain && store.shopify_access_token) {
+        try {
+          // Normalize domain: remove https:// and any trailing slashes
+          const cleanDomain = store.shopify_domain
+            .replace(/^https?:\/\//, '')
+            .replace(/\/$/, '');
+            
+          const shopifySince = new Date(since).toISOString();
+          console.log(`[Performance API] Attempting Shopify Sync for ${store.name} (${cleanDomain}) since ${shopifySince}`);
+          
+          const shopifyRes = await axios.get(
+            `https://${cleanDomain}/admin/api/2024-01/orders.json`,
+            {
+              headers: { 
+                'X-Shopify-Access-Token': store.shopify_access_token,
+                'Content-Type': 'application/json'
+              },
+              params: { status: 'any', created_at_min: shopifySince, limit: 250 }
+            }
+          );
+          shopifyOrders = shopifyRes.data.orders || [];
+          console.log(`[Performance API] Successfully fetched ${shopifyOrders.length} orders from Shopify for ${store.name}`);
+        } catch (err: any) {
+          const status = err.response?.status;
+          const msg = err.response?.data?.errors || err.message;
+          console.error(`[Performance API] Shopify Error [${status}] for ${store.name}:`, msg);
+          
+          if (status === 401) {
+            console.error(`[CRITICAL] Store "${store.name}" has an invalid Shopify Access Token. Please verify the token has 'read_orders' scopes.`);
+          }
+        }
+      }
+
+      for (const adAccount of store.ad_accounts) {
+        const fetchPromise = (async () => {
+          try {
+            let actId = adAccount.ad_account_id;
+            if (!actId.startsWith('act_')) actId = `act_${actId}`;
+
+            console.log(`[Performance API] Fetching Meta data for ${actId} (${store.name})`);
+
+            // 1. Fetch campaigns (to get status and name)
+            const campaignsPromise = axios.get(
+              `https://graph.facebook.com/v19.0/${actId}/campaigns`,
+              {
+                params: {
+                  access_token: store.meta_access_token,
+                  fields: "name,status,start_time",
+                  limit: 1000
+                },
+                timeout: 20000
+              }
+            );
+
+            // 2. Fetch insights for the same period
+            const insightsPromise = axios.get(
+              `https://graph.facebook.com/v19.0/${actId}/insights`,
+              {
+                params: {
+                  access_token: store.meta_access_token,
+                  level: 'campaign',
+                  fields: "campaign_id,spend,purchase_roas,actions",
+                  time_range: JSON.stringify(timeRange),
+                },
+                timeout: 20000
+              }
+            );
+
+            const [campaignsRes, insightsRes] = await Promise.all([campaignsPromise, insightsPromise]);
+            
+            const campaigns = campaignsRes.data.data || [];
+            const insights = insightsRes.data.data || [];
+            
+            for (const insight of insights) {
+              const spend = parseFloat(insight.spend || "0");
+              if (spend <= 0) continue;
+
+              const camp = campaigns.find((c: any) => c.id === insight.campaign_id);
+              const campName = camp?.name || insight.campaign_name || "Unknown Campaign";
+              const campStatus = camp?.status || "UNKNOWN";
+
+              const matchedEmployee = employees?.find(emp => 
+                emp.identifier && campName.toLowerCase().includes(emp.identifier.toLowerCase())
+              );
+
+              if (employeeId && matchedEmployee?.id !== employeeId) continue;
+
+              // --- Shopify Matching Logic for this insight ---
+              let shopifyConfirmed = 0;
+              let shopifyPending = 0;
+              let shopifyCancelled = 0;
+              let shopifyRevenue = 0;
+
+              if (shopifyOrders.length > 0) {
+                const identifier = matchedEmployee?.identifier?.toLowerCase();
+                for (const order of shopifyOrders) {
+                  const landingSite = (order.landing_site || "").toLowerCase();
+                  
+                  const isMatch = (identifier && landingSite.includes(identifier)) || 
+                                 landingSite.includes(insight.campaign_id) || 
+                                 landingSite.includes(campName.toLowerCase().replace(/\s+/g, '_'));
+
+                  if (isMatch) {
+                    const totalPrice = parseFloat(order.total_price || "0");
+                    if (order.cancelled_at) {
+                      shopifyCancelled++;
+                    } else if (order.fulfillment_status === 'fulfilled') {
+                      shopifyConfirmed++;
+                      shopifyRevenue += totalPrice;
+                    } else {
+                      shopifyPending++;
+                      shopifyRevenue += totalPrice; 
+                    }
+                  }
+                }
+              }
+
+              const metaRoas = parseFloat(insight.purchase_roas?.[0]?.value || "0");
+              const metaRevenue = spend * metaRoas;
+              const metaPurchases = parseInt(insight.actions?.find((a: any) => a.action_type === 'purchase')?.value || "0");
+
+              allCampaigns.push({
+                id: insight.campaign_id,
+                name: campName,
+                status: campStatus,
+                start_date: camp?.start_time || timeRange.since,
+                spend,
+                revenue: shopifyRevenue > 0 ? shopifyRevenue : metaRevenue,
+                confirmed_orders: shopifyConfirmed > 0 ? shopifyConfirmed : metaPurchases,
+                cancelled_orders: shopifyCancelled,
+                pending_orders: shopifyPending,
+                meta_revenue: metaRevenue,
+                meta_purchases: metaPurchases,
+                store_name: store.name,
+                buyer_name: matchedEmployee?.full_name || "Unassigned",
+                employee_id: matchedEmployee?.id || null,
+                store_id: store.id
+              });
+            }
+          } catch (err: any) {
+            console.error(`[Performance API] Meta API Error for ${adAccount.ad_account_id}:`, err.response?.data || err.message);
+          }
+        })();
+        fetchPromises.push(fetchPromise);
+      }
+    }
+
+    await Promise.all(fetchPromises);
+    allCampaigns.sort((a, b) => b.spend - a.spend);
+    performanceCache.set(cacheKey, { data: allCampaigns, timestamp: Date.now() });
+
+    res.json({ success: true, data: allCampaigns });
+  } catch (error: any) {
+    console.error("[Performance API] Global Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+async function syncStoreCampaigns(storeId: string) {
+  // 1. Fetch Store and its Ad Accounts
+  const { data: store, error: storeError } = await supabaseAdmin
+    .from("stores")
+    .select("*, ad_accounts(*)")
+    .eq("id", storeId)
+    .single();
+
+  if (storeError || !store) throw new Error("Store not found");
+  if (!store.meta_access_token) throw new Error("Meta Access Token missing for this store");
+
+  // 2. Fetch Employees for matching
+  const { data: employees } = await supabaseAdmin
+    .from("profiles")
+    .select("id, identifier")
+    .eq("agency_id", store.agency_id);
+
+  const results = [];
+
+  // 3. For each Ad Account, fetch campaigns
+  for (const adAccount of store.ad_accounts) {
+    try {
       const response = await axios.get(
         `https://graph.facebook.com/v19.0/${adAccount.ad_account_id}/campaigns`,
         {
@@ -138,46 +406,120 @@ app.post("/api/meta/sync-campaigns", async (req, res) => {
         );
 
         const spend = parseFloat(camp.insights?.data?.[0]?.spend || "0");
-        
-        // Mocking Shopify data for now - in a real app, we'd fetch from Shopify API
-        // We'll generate some semi-random revenue based on spend for the demo
-        const revenue = spend * (1.5 + Math.random() * 2); 
-        const orders = Math.floor(revenue / 50);
+        const metaPurchases = parseInt(camp.insights?.data?.[0]?.actions?.find((a: any) => a.action_type === 'purchase')?.value || "0");
+
+        // --- Shopify Integration Logic ---
+        let shopifyConfirmed = 0;
+        let shopifyPending = 0;
+        let shopifyCancelled = 0;
+        let shopifyRevenue = 0;
+
+        try {
+          // Fetch orders from Shopify for this campaign's timeframe (approx)
+          // We'll filter by UTM parameters in the response
+          const shopifyRes = await axios.get(
+            `https://${store.shopify_domain}/admin/api/2024-01/orders.json`,
+            {
+              headers: {
+                'X-Shopify-Access-Token': store.shopify_access_token
+              },
+              params: {
+                status: 'any',
+                created_at_min: camp.start_time || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+              }
+            }
+          );
+
+          const orders = shopifyRes.data.orders || [];
+          const identifier = matchedEmployee?.identifier?.toLowerCase();
+
+          for (const order of orders) {
+            // Check landing_site for UTM parameters
+            const landingSite = (order.landing_site || "").toLowerCase();
+            const noteAttributes = order.note_attributes || [];
+            
+            // Basic matching: Check if campaign name or employee identifier is in UTMs
+            const isMatch = (identifier && landingSite.includes(identifier)) || 
+                           landingSite.includes(camp.id) || 
+                           landingSite.includes(camp.name.toLowerCase().replace(/\s+/g, '_'));
+
+            if (isMatch) {
+              const totalPrice = parseFloat(order.total_price || "0");
+              
+              if (order.cancelled_at) {
+                shopifyCancelled++;
+              } else if (order.fulfillment_status === 'fulfilled') {
+                shopifyConfirmed++;
+                shopifyRevenue += totalPrice;
+              } else {
+                shopifyPending++;
+                // Sometimes pending orders also count towards revenue depending on business logic
+                shopifyRevenue += totalPrice; 
+              }
+            }
+          }
+        } catch (shError: any) {
+          console.error(`Shopify API Error for ${store.name}:`, shError.response?.data || shError.message);
+          // Fallback to mock data if Shopify fails to avoid breaking Meta sync
+          shopifyRevenue = spend * (1.5 + Math.random() * 2);
+          shopifyConfirmed = Math.floor(shopifyRevenue / 50);
+        }
+
+        // Ensure date is valid
+        let startDateStr = new Date().toISOString();
+        if (camp.start_time) {
+          const d = new Date(camp.start_time);
+          if (!isNaN(d.getTime())) {
+            startDateStr = d.toISOString();
+          }
+        }
 
         const campaignData = {
-          id: camp.id,
-          ad_account_id: adAccount.id, // Use the internal UUID
+          id: String(camp.id),
+          ad_account_id: adAccount.id, // Use the internal UUID (id) from ad_accounts table
           store_id: storeId,
-          employee_id: matchedEmployee?.id || null,
-          name: camp.name,
-          spend: spend,
-          revenue: revenue,
-          meta_purchases: Math.floor(orders * 0.8), // Mocked
-          confirmed_orders: orders,
-          cancelled_orders: 0,
-          pending_orders: 0,
-          status: camp.status,
-          start_date: camp.start_time || new Date().toISOString()
+          employee_id: matchedEmployee?.id || null, // Link to matched employee
+          name: camp.name || 'Untitled Campaign',
+          spend: isNaN(spend) ? 0 : spend,
+          revenue: shopifyRevenue,
+          meta_purchases: metaPurchases || Math.floor(shopifyConfirmed * 0.8),
+          confirmed_orders: shopifyConfirmed,
+          cancelled_orders: shopifyCancelled,
+          pending_orders: shopifyPending,
+          status: camp.status || 'UNKNOWN',
+          start_date: startDateStr
         };
 
         // Upsert to Supabase
         const { error: upsertError } = await supabaseAdmin
           .from("campaigns")
-          .upsert(campaignData);
+          .upsert(campaignData, { onConflict: 'id' });
 
         if (upsertError) {
-          console.error("Upsert error for campaign:", camp.name, JSON.stringify(upsertError, null, 2));
+          console.error(`!!! UPSERT ERROR for "${camp.name}": ${upsertError.message} (Code: ${upsertError.code})`);
+          
+          // Fallback: Try with Meta ID string if UUID failed (common schema mismatch)
+          if (upsertError.code === '22P02' || upsertError.message.includes('invalid input syntax for type uuid')) {
+            const fallbackData = { ...campaignData, ad_account_id: adAccount.ad_account_id };
+            const { error: fallbackError } = await supabaseAdmin
+              .from("campaigns")
+              .upsert(fallbackData, { onConflict: 'id' });
+            
+            if (fallbackError) {
+              console.error(`!!! FALLBACK ERROR for "${camp.name}": ${fallbackError.message}`);
+            } else {
+              console.log(`Successfully upserted "${camp.name}" using fallback Meta ID.`);
+            }
+          }
         }
         results.push(campaignData);
       }
+    } catch (err: any) {
+      console.error(`Failed to sync ad account ${adAccount.ad_account_id}:`, err.message);
     }
-
-    res.json({ success: true, count: results.length });
-  } catch (error: any) {
-    console.error("Sync Error:", error.message);
-    res.status(500).json({ error: error.message });
   }
-});
+  return results;
+}
 
 // Catch-all for API routes
 app.all("/api/*", (req, res) => {

@@ -5,6 +5,7 @@ import {
   Store, 
   Users, 
   Settings, 
+  PieChart,
   LogOut, 
   TrendingUp,
   Building2,
@@ -60,6 +61,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         { icon: Store, label: 'Stores', href: '/stores' },
         { icon: Users, label: 'Employees', href: '/employees' },
         { icon: TrendingUp, label: 'Performance', href: '/performance' },
+        { icon: PieChart, label: 'Analytics', href: '/analytics' },
+        { icon: Store, label: 'Shopify Analytics', href: '/shopify-analytics' },
         { icon: Facebook, label: 'Meta Setup', href: '/meta-guide' },
       ];
 

@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { formatLocalYYYYMMDD } from '@/lib/date-utils';
 
 export default function Performance() {
   const { profile } = useAuth();
@@ -34,13 +35,15 @@ export default function Performance() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStore, setSelectedStore] = useState('all-stores');
   const [stores, setStores] = useState<any[]>([]);
+  const [dateRange, setDateRange] = useState('last-30-days');
+  const [customDates, setCustomDates] = useState({ start: '', end: '' });
 
   useEffect(() => {
     if (profile?.agency_id) {
-      fetchData();
       fetchStores();
+      fetchData();
     }
-  }, [profile]);
+  }, [profile, dateRange, customDates]);
 
   async function fetchStores() {
     const { data } = await supabase
@@ -50,31 +53,49 @@ export default function Performance() {
     setStores(data || []);
   }
 
-  async function fetchData() {
+  async function fetchData(isRefresh = false) {
     setLoading(true);
     try {
-      let query = supabase
-        .from('campaigns')
-        .select(`
-          *,
-          stores (name),
-          profiles (full_name)
-        `);
-
-      if (profile?.role !== 'super_admin') {
-        // Filter by agency stores
-        const { data: agencyStores } = await supabase
-          .from('stores')
-          .select('id')
-          .eq('agency_id', profile?.agency_id);
-        
-        const storeIds = agencyStores?.map(s => s.id) || [];
-        query = query.in('store_id', storeIds);
+      const params = new URLSearchParams({
+        agencyId: profile?.agency_id || '',
+      });
+      
+      if (isRefresh) {
+        params.append('refresh', 'true');
       }
 
-      const { data, error } = await query.order('spend', { ascending: false });
-      if (error) throw error;
-      setCampaigns(data || []);
+      if (profile?.role === 'employee') {
+        params.append('employeeId', profile.id);
+      }
+
+      if (dateRange !== 'all-time') {
+        let start = new Date();
+        let end = new Date();
+        
+        if (dateRange === 'today') {
+          start.setHours(0,0,0,0);
+        } else if (dateRange === 'yesterday') {
+          start.setDate(start.getDate() - 1);
+          end.setDate(end.getDate() - 1);
+        } else if (dateRange === 'last-7-days') {
+          start.setDate(start.getDate() - 7);
+        } else if (dateRange === 'last-30-days') {
+          start.setDate(start.getDate() - 30);
+        } else if (dateRange === 'custom' && customDates.start && customDates.end) {
+          start = new Date(customDates.start);
+          end = new Date(customDates.end);
+        }
+
+        params.append('startDate', formatLocalYYYYMMDD(start));
+        params.append('endDate', formatLocalYYYYMMDD(end));
+      }
+
+      const response = await fetch(`/api/performance?${params.toString()}`);
+      const result = await response.json();
+
+      if (!result.success) throw new Error(result.error);
+
+      setCampaigns(result.data || []);
     } catch (error: any) {
       toast.error('Failed to fetch performance data', { description: error.message });
     } finally {
@@ -85,8 +106,8 @@ export default function Performance() {
   const filteredCampaigns = campaigns.filter(camp => {
     const matchesSearch = 
       camp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      camp.stores?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      camp.profiles?.full_name?.toLowerCase().includes(searchTerm.toLowerCase());
+      camp.store_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      camp.buyer_name.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStore = selectedStore === 'all-stores' || camp.store_id === selectedStore;
     
@@ -106,7 +127,7 @@ export default function Performance() {
             <Download className="h-4 w-4" />
             Export CSV
           </Button>
-          <Button className="gap-2" onClick={fetchData} disabled={loading}>
+          <Button className="gap-2" onClick={() => fetchData(true)} disabled={loading}>
             <RefreshCcw className={cn("h-4 w-4", loading && "animate-spin")} />
             Refresh Data
           </Button>
@@ -128,7 +149,9 @@ export default function Performance() {
             <div className="flex items-center gap-2">
               <Select value={selectedStore} onValueChange={setSelectedStore}>
                 <SelectTrigger className="w-[160px] rounded-xl bg-background/50">
-                  <SelectValue placeholder="All Stores" />
+                  <SelectValue>
+                    {selectedStore === 'all-stores' ? 'All Stores' : stores.find(s => s.id === selectedStore)?.name}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all-stores">All Stores</SelectItem>
@@ -137,7 +160,7 @@ export default function Performance() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select defaultValue="all-time">
+              <Select value={dateRange} onValueChange={setDateRange}>
                 <SelectTrigger className="w-[160px] rounded-xl bg-background/50">
                   <SelectValue placeholder="Time Range" />
                 </SelectTrigger>
@@ -145,9 +168,27 @@ export default function Performance() {
                   <SelectItem value="today">Today</SelectItem>
                   <SelectItem value="yesterday">Yesterday</SelectItem>
                   <SelectItem value="last-7-days">Last 7 Days</SelectItem>
-                  <SelectItem value="this-month">This Month</SelectItem>
+                  <SelectItem value="last-30-days">Last 30 Days</SelectItem>
+                  <SelectItem value="all-time">All Time</SelectItem>
+                  <SelectItem value="custom">Custom Range</SelectItem>
                 </SelectContent>
               </Select>
+              {dateRange === 'custom' && (
+                <div className="flex items-center gap-2">
+                  <Input 
+                    type="date" 
+                    className="w-[140px] rounded-xl bg-background/50" 
+                    value={customDates.start}
+                    onChange={(e) => setCustomDates(prev => ({ ...prev, start: e.target.value }))}
+                  />
+                  <Input 
+                    type="date" 
+                    className="w-[140px] rounded-xl bg-background/50" 
+                    value={customDates.end}
+                    onChange={(e) => setCustomDates(prev => ({ ...prev, end: e.target.value }))}
+                  />
+                </div>
+              )}
               <Button variant="outline" size="icon" className="rounded-xl">
                 <Filter className="h-4 w-4" />
               </Button>
@@ -173,16 +214,25 @@ export default function Performance() {
               {loading ? (
                 <TableRow>
                   <TableCell colSpan={9} className="h-64 text-center">
-                    <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+                    <div className="flex flex-col items-center justify-center gap-4">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      <p className="text-sm text-muted-foreground animate-pulse">Connecting to Meta Ads API...</p>
+                    </div>
                   </TableCell>
                 </TableRow>
               ) : filteredCampaigns.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9} className="h-64 text-center">
-                    <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                    <div className="flex flex-col items-center justify-center gap-4 text-muted-foreground">
                       <TrendingUp className="h-8 w-8 opacity-20" />
-                      <p>No campaign data found.</p>
-                      <p className="text-xs">Connect your Meta Ads account to sync performance data.</p>
+                      <div className="space-y-1">
+                        <p>No campaign data loaded.</p>
+                        <p className="text-xs">Click refresh to fetch live data from Meta Ads.</p>
+                      </div>
+                      <Button onClick={fetchData} className="gap-2">
+                        <RefreshCcw className="h-4 w-4" />
+                        Load Performance Data
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -196,14 +246,14 @@ export default function Performance() {
                       <TableCell className="pl-6 font-medium max-w-[200px] truncate">
                         {camp.name}
                       </TableCell>
-                      <TableCell>{camp.stores?.name}</TableCell>
+                      <TableCell>{camp.store_name}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className="font-normal">
-                          {camp.profiles?.full_name || 'Unassigned'}
+                          {camp.buyer_name}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right font-mono">${camp.spend.toLocaleString()}</TableCell>
-                      <TableCell className="text-right font-mono text-green-500">${camp.revenue.toLocaleString()}</TableCell>
+                      <TableCell className="text-right font-mono">Rs {camp.spend.toLocaleString()}</TableCell>
+                      <TableCell className="text-right font-mono text-green-500">Rs {camp.revenue.toLocaleString()}</TableCell>
                       <TableCell className="text-right">
                         <div className={cn(
                           "inline-flex items-center gap-1 font-bold",
@@ -213,10 +263,10 @@ export default function Performance() {
                           {Number(roas) >= 2 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
                         </div>
                       </TableCell>
-                      <TableCell className="text-right font-mono">${cpr}</TableCell>
+                      <TableCell className="text-right font-mono">Rs {cpr}</TableCell>
                       <TableCell className="text-right">{camp.confirmed_orders}</TableCell>
                       <TableCell className="text-right pr-6">
-                        <Badge variant={camp.status === 'ACTIVE' ? 'default' : 'secondary'}>
+                        <Badge variant={camp.status === 'ACTIVE' ? 'default' : camp.status === 'PAUSED' ? 'destructive' : 'secondary'}>
                           {camp.status}
                         </Badge>
                       </TableCell>

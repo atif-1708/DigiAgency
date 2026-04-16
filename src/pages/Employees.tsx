@@ -66,7 +66,10 @@ export default function Employees() {
     try {
       let query = supabase.from('profiles').select('*');
       
-      if (profile?.role !== 'super_admin') {
+      if (profile?.role === 'employee') {
+        // Employees only see themselves
+        query = query.eq('id', profile.id);
+      } else if (profile?.role !== 'super_admin') {
         query = query.eq('agency_id', profile?.agency_id);
       }
 
@@ -152,108 +155,114 @@ export default function Employees() {
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-bold tracking-tight">Team Management</h1>
-          <p className="text-muted-foreground">Manage media buyers and their campaign identifiers.</p>
+          <p className="text-muted-foreground">Manage employees and their campaign identifiers.</p>
         </div>
         
-        <Dialog>
-          <DialogTrigger render={<Button className="gap-2" />}>
-            <Plus className="h-4 w-4" />
-            Add Member
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <form onSubmit={handleAddMember}>
-              <DialogHeader>
-                <DialogTitle>Add Team Member</DialogTitle>
-                <DialogDescription>
-                  Invite a new member to your agency and set their identifier.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input 
-                    id="name" 
-                    placeholder="John Doe" 
-                    value={newMember.name}
-                    onChange={e => setNewMember({...newMember, name: e.target.value})}
-                    required
-                  />
+        {profile?.role !== 'employee' && (
+          <Dialog>
+            <DialogTrigger render={<Button className="gap-2" />}>
+              <Plus className="h-4 w-4" />
+              Add Member
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+              <form onSubmit={handleAddMember}>
+                <DialogHeader>
+                  <DialogTitle>Add Team Member</DialogTitle>
+                  <DialogDescription>
+                    Invite a new member to your agency and set their identifier.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="name">Full Name</Label>
+                    <Input 
+                      id="name" 
+                      placeholder="John Doe" 
+                      value={newMember.name}
+                      onChange={e => setNewMember({...newMember, name: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="email">Email Address</Label>
+                    <Input 
+                      id="email" 
+                      type="email" 
+                      placeholder="john@example.com" 
+                      value={newMember.email}
+                      onChange={e => setNewMember({...newMember, email: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="password">Initial Password</Label>
+                    <Input 
+                      id="password" 
+                      type="password" 
+                      placeholder="Set a password" 
+                      value={newMember.password}
+                      onChange={e => setNewMember({...newMember, password: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="role">Role</Label>
+                    <Select 
+                      value={newMember.role} 
+                      onValueChange={val => setNewMember({...newMember, role: val})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue>
+                          {newMember.role === 'agency_admin' ? 'Agency Admin' : 'Employee'}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="agency_admin">Agency Admin</SelectItem>
+                        <SelectItem value="employee">Employee</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="identifier">Campaign Identifier</Label>
+                    <Input 
+                      id="identifier" 
+                      placeholder="e.g. John" 
+                      value={newMember.identifier}
+                      onChange={e => setNewMember({...newMember, identifier: e.target.value})}
+                      required
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Used to match campaigns (e.g., "John_Summer_Sale")
+                    </p>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="store">Assigned Store</Label>
+                    <Select 
+                      value={newMember.storeId} 
+                      onValueChange={val => setNewMember({...newMember, storeId: val})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue>
+                          {newMember.storeId ? stores.find(s => s.id === newMember.storeId)?.name : 'Select store'}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {stores.map(s => (
+                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="email">Email Address</Label>
-                  <Input 
-                    id="email" 
-                    type="email" 
-                    placeholder="john@example.com" 
-                    value={newMember.email}
-                    onChange={e => setNewMember({...newMember, email: e.target.value})}
-                    required
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="password">Initial Password</Label>
-                  <Input 
-                    id="password" 
-                    type="password" 
-                    placeholder="Set a password" 
-                    value={newMember.password}
-                    onChange={e => setNewMember({...newMember, password: e.target.value})}
-                    required
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="role">Role</Label>
-                  <Select 
-                    value={newMember.role} 
-                    onValueChange={val => setNewMember({...newMember, role: val})}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="agency_admin">Agency Admin</SelectItem>
-                      <SelectItem value="employee">Employee (Media Buyer)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="identifier">Campaign Identifier</Label>
-                  <Input 
-                    id="identifier" 
-                    placeholder="e.g. John" 
-                    value={newMember.identifier}
-                    onChange={e => setNewMember({...newMember, identifier: e.target.value})}
-                    required
-                  />
-                  <p className="text-[10px] text-muted-foreground">
-                    Used to match campaigns (e.g., "John_Summer_Sale")
-                  </p>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="store">Assigned Store</Label>
-                  <Select 
-                    value={newMember.storeId} 
-                    onValueChange={val => setNewMember({...newMember, storeId: val})}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select store" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {stores.map(s => (
-                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button type="submit" disabled={isAdding}>
-                  {isAdding ? 'Adding...' : 'Add Member'}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <DialogFooter>
+                  <Button type="submit" disabled={isAdding}>
+                    {isAdding ? 'Adding...' : 'Add Member'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       <Card className="border-none shadow-sm bg-card/50 backdrop-blur-sm">
@@ -265,13 +274,13 @@ export default function Employees() {
                 <TableHead>Role</TableHead>
                 <TableHead>Store</TableHead>
                 <TableHead>Identifier</TableHead>
-                <TableHead className="text-right pr-6">Actions</TableHead>
+                {profile?.role !== 'employee' && <TableHead className="text-right pr-6">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {employees.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={profile?.role !== 'employee' ? 5 : 4} className="h-24 text-center text-muted-foreground">
                     No team members found.
                   </TableCell>
                 </TableRow>
@@ -302,16 +311,18 @@ export default function Employees() {
                         {emp.identifier || 'N/A'}
                       </code>
                     </TableCell>
-                    <TableCell className="text-right pr-6">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {profile?.role !== 'employee' && (
+                      <TableCell className="text-right pr-6">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))
               )}

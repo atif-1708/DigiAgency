@@ -80,7 +80,16 @@ export default function Stores() {
     try {
       let query = supabase.from('stores').select('*, ad_accounts(count)');
       
-      if (profile?.role !== 'super_admin') {
+      if (profile?.role === 'employee') {
+        // Employees only see their assigned store
+        if (profile.store_id) {
+          query = query.eq('id', profile.store_id);
+        } else {
+          setStores([]);
+          setLoading(false);
+          return;
+        }
+      } else if (profile?.role !== 'super_admin') {
         query = query.eq('agency_id', profile?.agency_id);
       }
 
@@ -245,134 +254,136 @@ export default function Stores() {
           <p className="text-muted-foreground">Manage your Shopify stores and Meta Ads integrations.</p>
         </div>
         
-        <Dialog>
-          <DialogTrigger render={<Button className="gap-2" />}>
-            <Plus className="h-4 w-4" />
-            Add Store
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <form onSubmit={handleAddStore}>
-              <DialogHeader>
-                <DialogTitle>Add New Store</DialogTitle>
-                <DialogDescription>
-                  Connect a new Shopify store to your agency.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Store Name</Label>
-                  <Input 
-                    id="name" 
-                    placeholder="e.g. FashionHub" 
-                    value={newStore.name}
-                    onChange={e => setNewStore({...newStore, name: e.target.value})}
-                    required
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="domain">Shopify Domain</Label>
-                  <Input 
-                    id="domain" 
-                    placeholder="your-store.myshopify.com" 
-                    value={newStore.domain}
-                    onChange={e => setNewStore({...newStore, domain: e.target.value})}
-                    required
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="token">Shopify Admin API Token</Label>
-                  <Input 
-                    id="token" 
-                    type="password" 
-                    value={newStore.token}
-                    onChange={e => setNewStore({...newStore, token: e.target.value})}
-                    required
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="metaAppId">Meta App ID</Label>
-                  <Input 
-                    id="metaAppId" 
-                    placeholder="Meta App ID" 
-                    value={newStore.metaAppId}
-                    onChange={e => setNewStore({...newStore, metaAppId: e.target.value})}
-                    required
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="metaAppSecret">Meta App Secret</Label>
-                  <Input 
-                    id="metaAppSecret" 
-                    type="password"
-                    placeholder="Meta App Secret" 
-                    value={newStore.metaAppSecret}
-                    onChange={e => setNewStore({...newStore, metaAppSecret: e.target.value})}
-                    required
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="metaAccessToken">Meta Access Token</Label>
-                  <div className="flex gap-2">
+        {profile?.role !== 'employee' && (
+          <Dialog>
+            <DialogTrigger render={<Button className="gap-2" />}>
+              <Plus className="h-4 w-4" />
+              Add Store
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+              <form onSubmit={handleAddStore}>
+                <DialogHeader>
+                  <DialogTitle>Add New Store</DialogTitle>
+                  <DialogDescription>
+                    Connect a new Shopify store to your agency.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="name">Store Name</Label>
                     <Input 
-                      id="metaAccessToken" 
-                      type="password"
-                      placeholder="Meta Access Token" 
-                      value={newStore.metaAccessToken}
-                      onChange={e => setNewStore({...newStore, metaAccessToken: e.target.value})}
+                      id="name" 
+                      placeholder="e.g. FashionHub" 
+                      value={newStore.name}
+                      onChange={e => setNewStore({...newStore, name: e.target.value})}
                       required
                     />
-                    <Button 
-                      type="button" 
-                      variant="secondary" 
-                      onClick={handleFetchAdAccounts}
-                      disabled={isFetchingAccounts}
-                    >
-                      {isFetchingAccounts ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Fetch'}
-                    </Button>
                   </div>
-                </div>
-
-                {fetchedAdAccounts.length > 0 && (
                   <div className="grid gap-2">
-                    <Label>Select Ad Accounts</Label>
-                    <div className="max-h-[200px] overflow-y-auto border rounded-md p-2 space-y-2 bg-background/50">
-                      {fetchedAdAccounts.map(acc => (
-                        <div key={acc.id} className="flex items-center space-x-2 p-1 hover:bg-accent/50 rounded transition-colors">
-                          <input
-                            type="checkbox"
-                            id={`acc-${acc.id}`}
-                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                            checked={newStore.adAccountIds.includes(acc.id)}
-                            onChange={(e) => {
-                              const ids = e.target.checked 
-                                ? [...newStore.adAccountIds, acc.id]
-                                : newStore.adAccountIds.filter(id => id !== acc.id);
-                              setNewStore({...newStore, adAccountIds: ids});
-                            }}
-                          />
-                          <label 
-                            htmlFor={`acc-${acc.id}`} 
-                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex-1"
-                          >
-                            {acc.name} <span className="text-xs text-muted-foreground">({acc.account_id})</span>
-                          </label>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-[10px] text-muted-foreground">
-                      {newStore.adAccountIds.length} account(s) selected
-                    </p>
+                    <Label htmlFor="domain">Shopify Domain</Label>
+                    <Input 
+                      id="domain" 
+                      placeholder="your-store.myshopify.com" 
+                      value={newStore.domain}
+                      onChange={e => setNewStore({...newStore, domain: e.target.value})}
+                      required
+                    />
                   </div>
-                )}
-              </div>
-              <DialogFooter>
-                <Button type="submit" disabled={isAdding}>
-                  {isAdding ? 'Connecting...' : 'Connect Shopify'}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                  <div className="grid gap-2">
+                    <Label htmlFor="token">Shopify Admin API Token</Label>
+                    <Input 
+                      id="token" 
+                      type="password" 
+                      value={newStore.token}
+                      onChange={e => setNewStore({...newStore, token: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="metaAppId">Meta App ID</Label>
+                    <Input 
+                      id="metaAppId" 
+                      placeholder="Meta App ID" 
+                      value={newStore.metaAppId}
+                      onChange={e => setNewStore({...newStore, metaAppId: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="metaAppSecret">Meta App Secret</Label>
+                    <Input 
+                      id="metaAppSecret" 
+                      type="password"
+                      placeholder="Meta App Secret" 
+                      value={newStore.metaAppSecret}
+                      onChange={e => setNewStore({...newStore, metaAppSecret: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="metaAccessToken">Meta Access Token</Label>
+                    <div className="flex gap-2">
+                      <Input 
+                        id="metaAccessToken" 
+                        type="password"
+                        placeholder="Meta Access Token" 
+                        value={newStore.metaAccessToken}
+                        onChange={e => setNewStore({...newStore, metaAccessToken: e.target.value})}
+                        required
+                      />
+                      <Button 
+                        type="button" 
+                        variant="secondary" 
+                        onClick={handleFetchAdAccounts}
+                        disabled={isFetchingAccounts}
+                      >
+                        {isFetchingAccounts ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Fetch'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {fetchedAdAccounts.length > 0 && (
+                    <div className="grid gap-2">
+                      <Label>Select Ad Accounts</Label>
+                      <div className="max-h-[200px] overflow-y-auto border rounded-md p-2 space-y-2 bg-background/50">
+                        {fetchedAdAccounts.map(acc => (
+                          <div key={acc.id} className="flex items-center space-x-2 p-1 hover:bg-accent/50 rounded transition-colors">
+                            <input
+                              type="checkbox"
+                              id={`acc-${acc.id}`}
+                              className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                              checked={newStore.adAccountIds.includes(acc.id)}
+                              onChange={(e) => {
+                                const ids = e.target.checked 
+                                  ? [...newStore.adAccountIds, acc.id]
+                                  : newStore.adAccountIds.filter(id => id !== acc.id);
+                                setNewStore({...newStore, adAccountIds: ids});
+                              }}
+                            />
+                            <label 
+                              htmlFor={`acc-${acc.id}`} 
+                              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex-1"
+                            >
+                              {acc.name} <span className="text-xs text-muted-foreground">({acc.account_id})</span>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        {newStore.adAccountIds.length} account(s) selected
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button type="submit" disabled={isAdding}>
+                    {isAdding ? 'Connecting...' : 'Connect Shopify'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       {stores.length === 0 ? (
@@ -393,25 +404,27 @@ export default function Stores() {
                   <Badge variant={store.status === 'Connected' ? 'default' : 'secondary'}>
                     {store.status}
                   </Badge>
-                  <div className="flex gap-1">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8 text-muted-foreground hover:text-primary"
-                      onClick={() => setEditingStore(store)}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => handleDeleteStore(store.id)}
-                      disabled={isDeleting}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  {profile?.role !== 'employee' && (
+                    <div className="flex gap-1">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        onClick={() => setEditingStore(store)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        onClick={() => handleDeleteStore(store.id)}
+                        disabled={isDeleting}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
@@ -424,26 +437,28 @@ export default function Stores() {
                     <span className="font-semibold">{store.ad_accounts?.[0]?.count || 0}</span>
                   </div>
                   
-                  <div className="pt-4 flex gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="flex-1 gap-2"
-                      onClick={() => handleSync(store.id)}
-                      disabled={isSyncing === store.id}
-                    >
-                      {isSyncing === store.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <RefreshCcw className="h-3 w-3" />
-                      )}
-                      Sync
-                    </Button>
-                    <Button variant="outline" size="sm" className="flex-1 gap-2">
-                      <ShieldCheck className="h-3 w-3" />
-                      Meta Ads
-                    </Button>
-                  </div>
+                  {profile?.role !== 'employee' && (
+                    <div className="pt-4 flex gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="flex-1 gap-2"
+                        onClick={() => handleSync(store.id)}
+                        disabled={isSyncing === store.id}
+                      >
+                        {isSyncing === store.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RefreshCcw className="h-3 w-3" />
+                        )}
+                        Sync
+                      </Button>
+                      <Button variant="outline" size="sm" className="flex-1 gap-2">
+                        <ShieldCheck className="h-3 w-3" />
+                        Meta Ads
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

@@ -5,6 +5,8 @@ import Dashboard from '@/pages/Dashboard';
 import Stores from '@/pages/Stores';
 import Employees from '@/pages/Employees';
 import Performance from '@/pages/Performance';
+import Analytics from '@/pages/Analytics';
+import ShopifyAnalytics from '@/pages/ShopifyAnalytics';
 import Agencies from '@/pages/Agencies';
 import Login from '@/pages/Login';
 import MetaSetupGuide from '@/pages/MetaSetupGuide';
@@ -45,6 +47,8 @@ export default function App() {
           <Route path="/stores" element={<Stores />} />
           <Route path="/employees" element={<Employees />} />
           <Route path="/performance" element={<Performance />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/shopify-analytics" element={<ShopifyAnalytics />} />
           <Route path="/meta-guide" element={<MetaSetupGuide />} />
           {isSuperAdmin && <Route path="/agencies" element={<Agencies />} />}
           <Route path="/settings" element={<Settings />} />

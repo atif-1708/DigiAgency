@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { 
   DollarSign, 
@@ -9,11 +9,13 @@ import {
   ArrowDownRight,
   Users,
   Package,
-  Loader2
+  Loader2,
+  RefreshCcw
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   BarChart, 
   Bar, 
@@ -29,6 +31,7 @@ import {
 } from 'recharts';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { formatLocalYYYYMMDD } from '@/lib/date-utils';
 
 const StatCard = ({ title, value, change, trend, icon: Icon, suffix = "" }: any) => (
   <Card className="overflow-hidden border-none shadow-sm bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-all duration-300">
@@ -47,7 +50,7 @@ const StatCard = ({ title, value, change, trend, icon: Icon, suffix = "" }: any)
       <div className="mt-4">
         <p className="text-sm font-medium text-muted-foreground">{title}</p>
         <h3 className="text-2xl font-bold mt-1">
-          {suffix}{typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : value}
+          {suffix}{typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 0 }) : value}
         </h3>
       </div>
     </CardContent>
@@ -63,46 +66,67 @@ export default function Dashboard() {
     totalOrders: 0
   });
   const [chartData, setChartData] = useState<any[]>([]);
+  const [storePerformance, setStorePerformance] = useState<any[]>([]);
+  const [employeePerformance, setEmployeePerformance] = useState<any[]>([]);
+  const [employeeSortBy, setEmployeeSortBy] = useState('revenue-desc');
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
+  const [dateRange, setDateRange] = useState('last-30-days');
 
   useEffect(() => {
     if (profile?.agency_id) {
       fetchStats();
     }
-  }, [profile]);
+  }, [profile, dateRange]);
 
-  async function fetchStats() {
+  async function fetchStats(isRefresh = false) {
     setLoading(true);
     try {
-      // Fetch campaigns for the agency
-      const { data: agencyStores } = await supabase
-        .from('stores')
-        .select('id')
-        .eq('agency_id', profile?.agency_id);
+      const params = new URLSearchParams({
+        agencyId: profile?.agency_id || '',
+      });
       
-      const storeIds = agencyStores?.map(s => s.id) || [];
-
-      if (storeIds.length === 0) {
-        setHasData(false);
-        setLoading(false);
-        return;
+      if (isRefresh) {
+        params.append('refresh', 'true');
       }
 
-      const { data: campaigns, error } = await supabase
-        .from('campaigns')
-        .select('*')
-        .in('store_id', storeIds);
+      if (profile?.role === 'employee') {
+        params.append('employeeId', profile.id);
+      }
 
-      if (error) throw error;
+      if (dateRange !== 'all-time') {
+        let start = new Date();
+        let end = new Date();
+        
+        if (dateRange === 'today') {
+          start.setHours(0,0,0,0);
+        } else if (dateRange === 'yesterday') {
+          start.setDate(start.getDate() - 1);
+          end.setDate(end.getDate() - 1);
+        } else if (dateRange === 'last-7-days') {
+          start.setDate(start.getDate() - 7);
+        } else if (dateRange === 'last-30-days') {
+          start.setDate(start.getDate() - 30);
+        }
 
-      if (!campaigns || campaigns.length === 0) {
+        params.append('startDate', formatLocalYYYYMMDD(start));
+        params.append('endDate', formatLocalYYYYMMDD(end));
+      }
+
+      const response = await fetch(`/api/performance?${params.toString()}`);
+      const result = await response.json();
+
+      if (!result.success) throw new Error(result.error);
+
+      const campaigns = result.data || [];
+
+      if (campaigns.length === 0) {
         setHasData(false);
       } else {
         setHasData(true);
-        const totalSpend = campaigns.reduce((acc, c) => acc + (c.spend || 0), 0);
-        const totalRevenue = campaigns.reduce((acc, c) => acc + (c.revenue || 0), 0);
-        const totalOrders = campaigns.reduce((acc, c) => acc + (c.confirmed_orders || 0), 0);
+        const totalSpend = campaigns.reduce((acc: number, c: any) => acc + (c.spend || 0), 0);
+        const totalRevenue = campaigns.reduce((acc: number, c: any) => acc + (c.revenue || 0), 0);
+        const totalOrders = campaigns.reduce((acc: number, c: any) => acc + (c.confirmed_orders || 0), 0);
         const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
 
         setStats({
@@ -113,8 +137,8 @@ export default function Dashboard() {
         });
 
         // Group by date for chart (simplified)
-        const grouped = campaigns.reduce((acc: any, c) => {
-          const date = new Date(c.start_date).toLocaleDateString('en-US', { weekday: 'short' });
+        const grouped = campaigns.reduce((acc: any, c: any) => {
+          const date = new Date(c.start_date || new Date()).toLocaleDateString('en-US', { weekday: 'short' });
           if (!acc[date]) acc[date] = { name: date, spend: 0, revenue: 0, orders: 0 };
           acc[date].spend += c.spend || 0;
           acc[date].revenue += c.revenue || 0;
@@ -123,6 +147,38 @@ export default function Dashboard() {
         }, {});
 
         setChartData(Object.values(grouped));
+
+        // Group by Store Performance
+        const storeMap: any = {};
+        campaigns.forEach((c: any) => {
+          const storeName = c.store_name || 'Unknown Store';
+          if (!storeMap[storeName]) {
+            storeMap[storeName] = { name: storeName, revenue: 0, spend: 0 };
+          }
+          storeMap[storeName].revenue += c.revenue || 0;
+          storeMap[storeName].spend += c.spend || 0;
+        });
+        setStorePerformance(Object.values(storeMap).sort((a: any, b: any) => b.revenue - a.revenue).slice(0, 5));
+
+        // Group by Employee Performance
+        const employeeMap: any = {};
+        campaigns.forEach((c: any) => {
+          const empName = c.buyer_name || 'Unassigned';
+          if (!employeeMap[empName]) {
+            employeeMap[empName] = { name: empName, revenue: 0, spend: 0, orders: 0, cpr: 0, roas: 0 };
+          }
+          employeeMap[empName].revenue += c.revenue || 0;
+          employeeMap[empName].spend += c.spend || 0;
+          employeeMap[empName].orders += c.confirmed_orders || 0;
+        });
+
+        const employees = Object.values(employeeMap).map((emp: any) => ({
+          ...emp,
+          cpr: emp.orders > 0 ? emp.spend / emp.orders : 0,
+          roas: emp.spend > 0 ? emp.revenue / emp.spend : 0
+        }));
+
+        setEmployeePerformance(employees);
       }
     } catch (err) {
       console.error('Error fetching stats:', err);
@@ -131,20 +187,37 @@ export default function Dashboard() {
     }
   }
 
-  if (loading) {
+  const sortedEmployees = useMemo(() => {
+    return [...employeePerformance].sort((a: any, b: any) => {
+      if (employeeSortBy === 'revenue-desc') return b.revenue - a.revenue;
+      if (employeeSortBy === 'orders-desc') return b.orders - a.orders;
+      if (employeeSortBy === 'roas-desc') return b.roas - a.roas;
+      if (employeeSortBy === 'cpr-asc') return a.cpr - b.cpr;
+      return 0;
+    }).slice(0, 5);
+  }, [employeePerformance, employeeSortBy]);
+
+  if (loading && !hasData) {
     return (
-      <div className="flex h-[400px] items-center justify-center">
+      <div className="flex flex-col h-[400px] items-center justify-center gap-4">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground animate-pulse">Fetching live intelligence from Meta Ads...</p>
       </div>
     );
   }
 
-  if (!hasData) {
+  if (!hasData && !loading) {
     return (
       <div className="space-y-8">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight">Agency Overview</h1>
-          <p className="text-muted-foreground">Real-time performance intelligence across all stores.</p>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex flex-col gap-2">
+            <h1 className="text-3xl font-bold tracking-tight">Agency Overview</h1>
+            <p className="text-muted-foreground">Real-time performance intelligence across all stores.</p>
+          </div>
+          <Button onClick={() => fetchStats(true)} className="gap-2">
+            <RefreshCcw className="h-4 w-4" />
+            Load Dashboard
+          </Button>
         </div>
 
         <Card className="border-dashed border-2 bg-card/30 backdrop-blur-sm p-12 text-center">
@@ -166,8 +239,8 @@ export default function Dashboard() {
         </Card>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 opacity-50 grayscale">
-          <StatCard title="Total Spend" value={0} icon={DollarSign} suffix="$" />
-          <StatCard title="Total Revenue" value={0} icon={ShoppingCart} suffix="$" />
+          <StatCard title="Total Spend" value={0} icon={DollarSign} suffix="Rs " />
+          <StatCard title="Total Revenue" value={0} icon={ShoppingCart} suffix="Rs " />
           <StatCard title="Avg. ROAS" value={0} icon={TrendingUp} />
           <StatCard title="Confirmed Orders" value={0} icon={Package} />
         </div>
@@ -177,43 +250,81 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">Agency Overview</h1>
-        <p className="text-muted-foreground">Real-time performance intelligence across all stores.</p>
-      </div>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex flex-col gap-2">
+            <h1 className="text-3xl font-bold tracking-tight">Agency Overview</h1>
+            <p className="text-muted-foreground">Real-time performance intelligence across all stores.</p>
+          </div>
+          <div className="flex items-center gap-4">
+            <Select value={dateRange} onValueChange={setDateRange}>
+              <SelectTrigger className="w-[180px] rounded-xl bg-card/50 backdrop-blur-sm border-none shadow-sm">
+                <SelectValue placeholder="Time Range" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="yesterday">Yesterday</SelectItem>
+                <SelectItem value="last-7-days">Last 7 Days</SelectItem>
+                <SelectItem value="last-30-days">Last 30 Days</SelectItem>
+                <SelectItem value="all-time">All Time</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={() => fetchStats(true)} disabled={loading} className="gap-2">
+              <RefreshCcw className={cn("h-4 w-4", loading && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
+        </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Total Spend" value={stats.totalSpend} icon={DollarSign} suffix="$" change={12} trend="up" />
-        <StatCard title="Total Revenue" value={stats.totalRevenue} icon={ShoppingCart} suffix="$" change={8} trend="up" />
+        <StatCard title="Total Spend" value={stats.totalSpend} icon={DollarSign} suffix="Rs " change={12} trend="up" />
+        <StatCard title="Total Revenue" value={stats.totalRevenue} icon={ShoppingCart} suffix="Rs " change={8} trend="up" />
         <StatCard title="Avg. ROAS" value={stats.avgRoas} icon={TrendingUp} change={5} trend="up" />
         <StatCard title="Confirmed Orders" value={stats.totalOrders} icon={Package} change={15} trend="up" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-7">
         <Card className="lg:col-span-4 border-none shadow-sm bg-card/50 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle>Performance Trends</CardTitle>
-            <CardDescription>Revenue vs Ad Spend over the last 7 days.</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div>
+              <CardTitle>Top Performing Employees</CardTitle>
+              <CardDescription>Contribution by employee.</CardDescription>
+            </div>
+            <Select value={employeeSortBy} onValueChange={setEmployeeSortBy}>
+              <SelectTrigger className="w-[140px] h-8 text-[11px] rounded-lg bg-background/50 border-none shadow-sm">
+                <SelectValue placeholder="Sort By" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="revenue-desc">By Revenue</SelectItem>
+                <SelectItem value="orders-desc">By Orders</SelectItem>
+                <SelectItem value="roas-desc">By ROAS</SelectItem>
+                <SelectItem value="cpr-asc">By CPR</SelectItem>
+              </SelectContent>
+            </Select>
           </CardHeader>
           <CardContent className="h-[350px] pl-2">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.1)" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12}} dx={-10} />
+              <BarChart data={sortedEmployees} layout="vertical" margin={{ left: 40, right: 40 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} opacity={0.1} />
+                <XAxis type="number" hide />
+                <YAxis 
+                  dataKey="name" 
+                  type="category" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  fontSize={12}
+                  width={100}
+                />
                 <Tooltip 
                   contentStyle={{ backgroundColor: 'hsl(var(--card))', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
-                  itemStyle={{ fontSize: '12px' }}
+                  cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                 />
-                <Area type="monotone" dataKey="revenue" stroke="var(--color-primary)" fillOpacity={1} fill="url(#colorRevenue)" strokeWidth={3} />
-                <Area type="monotone" dataKey="spend" stroke="rgba(255,255,255,0.3)" fill="transparent" strokeWidth={2} strokeDasharray="5 5" />
-              </AreaChart>
+                <Bar 
+                  dataKey={employeeSortBy.split('-')[0]} 
+                  fill="var(--color-primary)" 
+                  radius={[0, 4, 4, 0]} 
+                  barSize={32} 
+                />
+              </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
@@ -225,20 +336,25 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
-              {chartData.slice(0, 4).map((item, i) => (
-                <div key={i} className="space-y-2">
+              {storePerformance.map((item, i) => (
+                <div key={item.name} className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium">Store {i + 1}</span>
-                    <span className="text-muted-foreground">${item.revenue.toLocaleString()}</span>
+                    <span className="font-medium">{item.name}</span>
+                    <span className="text-muted-foreground font-mono">Rs {item.revenue.toLocaleString()}</span>
                   </div>
                   <div className="h-2 w-full bg-accent/30 rounded-full overflow-hidden">
                     <div 
                       className="h-full bg-primary transition-all duration-1000" 
-                      style={{ width: `${(item.revenue / stats.totalRevenue) * 100}%` }}
+                      style={{ width: `${stats.totalRevenue > 0 ? (item.revenue / stats.totalRevenue) * 100 : 0}%` }}
                     />
                   </div>
                 </div>
               ))}
+              {storePerformance.length === 0 && (
+                <div className="h-64 flex items-center justify-center text-muted-foreground italic">
+                  No store data to display
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
