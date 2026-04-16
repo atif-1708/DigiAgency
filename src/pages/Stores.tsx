@@ -49,6 +49,33 @@ export default function Stores() {
     }
   }, [profile]);
 
+  const [isSyncing, setIsSyncing] = useState<string | null>(null);
+
+  async function handleSync(storeId: string) {
+    setIsSyncing(storeId);
+    try {
+      const response = await fetch('/api/meta/sync-campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storeId })
+      });
+
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to sync campaigns');
+        toast.success(`Synced ${result.count} campaigns successfully`);
+      } else {
+        const text = await response.text();
+        throw new Error(`Server returned an unexpected response: ${text.substring(0, 100)}...`);
+      }
+    } catch (error: any) {
+      toast.error('Sync failed', { description: error.message });
+    } finally {
+      setIsSyncing(null);
+    }
+  }
+
   async function fetchStores() {
     try {
       let query = supabase.from('stores').select('*, ad_accounts(count)');
@@ -398,8 +425,18 @@ export default function Stores() {
                   </div>
                   
                   <div className="pt-4 flex gap-2">
-                    <Button variant="outline" size="sm" className="flex-1 gap-2">
-                      <RefreshCcw className="h-3 w-3" />
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="flex-1 gap-2"
+                      onClick={() => handleSync(store.id)}
+                      disabled={isSyncing === store.id}
+                    >
+                      {isSyncing === store.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <RefreshCcw className="h-3 w-3" />
+                      )}
                       Sync
                     </Button>
                     <Button variant="outline" size="sm" className="flex-1 gap-2">

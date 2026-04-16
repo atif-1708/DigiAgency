@@ -33,22 +33,34 @@ export default function Employees() {
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
 
+  const [stores, setStores] = useState<any[]>([]);
+
   // Form state
   const [newMember, setNewMember] = useState({
     name: '',
     email: '',
     password: '',
     role: 'employee',
-    identifier: ''
+    identifier: '',
+    storeId: ''
   });
 
   useEffect(() => {
     if (profile?.agency_id || profile?.role === 'super_admin') {
       fetchEmployees();
+      fetchStores();
     } else {
       setLoading(false);
     }
   }, [profile]);
+
+  async function fetchStores() {
+    const { data } = await supabase
+      .from('stores')
+      .select('id, name')
+      .eq('agency_id', profile?.agency_id);
+    setStores(data || []);
+  }
 
   async function fetchEmployees() {
     try {
@@ -58,9 +70,26 @@ export default function Employees() {
         query = query.eq('agency_id', profile?.agency_id);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
-      setEmployees(data || []);
+      const { data: profilesData, error: profilesError } = await query;
+      if (profilesError) throw profilesError;
+
+      // Fetch all stores for this agency to map names
+      const { data: storesData } = await supabase
+        .from('stores')
+        .select('id, name')
+        .eq('agency_id', profile?.agency_id);
+
+      const storesMap = (storesData || []).reduce((acc: any, s) => {
+        acc[s.id] = s.name;
+        return acc;
+      }, {});
+
+      const enrichedEmployees = (profilesData || []).map(emp => ({
+        ...emp,
+        store_name: emp.store_id ? storesMap[emp.store_id] : 'Unassigned'
+      }));
+
+      setEmployees(enrichedEmployees);
     } catch (error: any) {
       toast.error('Failed to fetch team members', { description: error.message });
     } finally {
@@ -82,7 +111,8 @@ export default function Employees() {
           fullName: newMember.name,
           role: newMember.role,
           agencyId: profile?.agency_id,
-          identifier: newMember.identifier
+          identifier: newMember.identifier,
+          storeId: newMember.storeId
         })
       });
 
@@ -199,6 +229,22 @@ export default function Employees() {
                     Used to match campaigns (e.g., "John_Summer_Sale")
                   </p>
                 </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="store">Assigned Store</Label>
+                  <Select 
+                    value={newMember.storeId} 
+                    onValueChange={val => setNewMember({...newMember, storeId: val})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select store" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {stores.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <DialogFooter>
                 <Button type="submit" disabled={isAdding}>
@@ -217,6 +263,7 @@ export default function Employees() {
               <TableRow className="hover:bg-transparent border-muted">
                 <TableHead className="w-[250px] pl-6">Member</TableHead>
                 <TableHead>Role</TableHead>
+                <TableHead>Store</TableHead>
                 <TableHead>Identifier</TableHead>
                 <TableHead className="text-right pr-6">Actions</TableHead>
               </TableRow>
@@ -224,7 +271,7 @@ export default function Employees() {
             <TableBody>
               {employees.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                     No team members found.
                   </TableCell>
                 </TableRow>
@@ -246,6 +293,9 @@ export default function Employees() {
                       <Badge variant={emp.role === 'agency_admin' ? 'default' : 'secondary'}>
                         {emp.role?.replace('_', ' ')}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm">{emp.store_name}</span>
                     </TableCell>
                     <TableCell>
                       <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-bold text-primary">
