@@ -11,7 +11,7 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = express();
+export const app = express();
 app.use(express.json());
 
 // Initialize Supabase Admin Client
@@ -570,13 +570,16 @@ app.all("/api/*", (req, res) => {
 });
 
 async function startServer() {
-  if (process.env.NODE_ENV === "production" || process.env.VITE_PROD === "true") {
+  const isProd = process.env.NODE_ENV === "production" || process.env.VITE_PROD === "true" || process.env.VERCEL === "1";
+  
+  if (isProd) {
     const distPath = path.join(process.cwd(), "dist");
-    console.log(`[Server] Serving static files from: ${distPath}`);
+    console.log(`[Server] Production Mode: Serving static files from ${distPath}`);
     app.use(express.static(distPath));
     
     // SPA fallback
     app.get("*", (req, res) => {
+      // If it's an API route that somehow fell through
       if (req.path.startsWith('/api/')) {
         return res.status(404).json({ error: `API route not found: ${req.path}` });
       }
@@ -590,11 +593,16 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  const PORT = 3000;
-  app.listen(PORT, "0.0.0.0", () => {
+  const PORT = process.env.PORT || 3000;
+  app.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   });
 }
 
-startServer();
+// Only start the server if we're not running as a Vercel serverless function
+if (process.env.VERCEL !== '1' && process.env.NODE_ENV !== 'test') {
+  startServer().catch(err => {
+    console.error("Failed to start server:", err);
+  });
+}

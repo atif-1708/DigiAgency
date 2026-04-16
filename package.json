@@ -5,11 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build:client": "vite build",
-    "build:server": "esbuild server.ts --bundle --platform=node --target=node20 --outfile=dist-server/server.cjs --external:vite --external:express --external:axios --external:dotenv --external:@supabase/supabase-js",
-    "build": "npm run build:client && npm run build:server",
-    "start": "NODE_ENV=production node dist-server/server.cjs",
-    "clean": "rm -rf dist dist-server",
+    "build": "vite build",
+    "start": "tsx server.ts",
+    "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
