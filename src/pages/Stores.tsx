@@ -29,7 +29,10 @@ export default function Stores() {
     name: '',
     domain: '',
     token: '',
-    adAccountId: ''
+    adAccountId: '',
+    metaAppId: '',
+    metaAppSecret: '',
+    metaAccessToken: ''
   });
 
   useEffect(() => {
@@ -72,7 +75,10 @@ export default function Stores() {
         shopify_domain: newStore.domain,
         shopify_access_token: newStore.token,
         agency_id: profile.agency_id,
-        status: 'Connected'
+        status: 'Connected',
+        meta_app_id: newStore.metaAppId,
+        meta_app_secret: newStore.metaAppSecret,
+        meta_access_token: newStore.metaAccessToken
       }).select().single();
 
       if (storeError) throw storeError;
@@ -88,7 +94,15 @@ export default function Stores() {
       }
 
       toast.success('Store and Ad Account connected successfully');
-      setNewStore({ name: '', domain: '', token: '', adAccountId: '' });
+      setNewStore({ 
+        name: '', 
+        domain: '', 
+        token: '', 
+        adAccountId: '',
+        metaAppId: '',
+        metaAppSecret: '',
+        metaAccessToken: ''
+      });
       fetchStores();
     } catch (error: any) {
       toast.error('Failed to add store', { description: error.message });
@@ -164,6 +178,38 @@ export default function Stores() {
                     placeholder="act_123456789" 
                     value={newStore.adAccountId}
                     onChange={e => setNewStore({...newStore, adAccountId: e.target.value})}
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="metaAppId">Meta App ID</Label>
+                  <Input 
+                    id="metaAppId" 
+                    placeholder="Meta App ID" 
+                    value={newStore.metaAppId}
+                    onChange={e => setNewStore({...newStore, metaAppId: e.target.value})}
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="metaAppSecret">Meta App Secret</Label>
+                  <Input 
+                    id="metaAppSecret" 
+                    type="password"
+                    placeholder="Meta App Secret" 
+                    value={newStore.metaAppSecret}
+                    onChange={e => setNewStore({...newStore, metaAppSecret: e.target.value})}
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="metaAccessToken">Meta Access Token</Label>
+                  <Input 
+                    id="metaAccessToken" 
+                    type="password"
+                    placeholder="Meta Access Token" 
+                    value={newStore.metaAccessToken}
+                    onChange={e => setNewStore({...newStore, metaAccessToken: e.target.value})}
                     required
                   />
                 </div>

@@ -61,7 +61,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         { icon: Users, label: 'Employees', href: '/employees' },
         { icon: TrendingUp, label: 'Performance', href: '/performance' },
         { icon: Facebook, label: 'Meta Setup', href: '/meta-guide' },
-        { icon: Settings, label: 'Settings', href: '/settings' },
       ];
 
   return (

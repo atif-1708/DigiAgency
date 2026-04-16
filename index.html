@@ -4,6 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My Google AI Studio App</title>
+    <script>
+      // Fix for "Cannot set property fetch of #<Window>" in certain iframe environments
+      (function() {
+        if (typeof window !== 'undefined') {
+          try {
+            var nativeFetch = window.fetch;
+            if (nativeFetch) {
+              Object.defineProperty(window, 'fetch', {
+                value: nativeFetch.bind(window),
+                configurable: true,
+                writable: true,
+              });
+            }
+          } catch (e) {
+            // Ignore errors if we can't redefine fetch
+          }
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
