@@ -94,7 +94,7 @@ app.post("/api/admin/create-user", async (req, res) => {
 });
 
 async function setupVite() {
-  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+  if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -103,25 +103,29 @@ async function setupVite() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
+    
+    // API routes are already defined above, so this will only catch non-API requests
     app.get("*", (req, res) => {
+      // If it's an API request that didn't match, return 404
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ error: 'API endpoint not found' });
+      }
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 }
 
 // For local development
-if (!process.env.VERCEL) {
-  const PORT = 3000;
+const PORT = 3000;
+if (process.env.NODE_ENV !== "production") {
   setupVite().then(() => {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on http://0.0.0.0:${PORT}`);
     });
   });
 } else {
-  // On Vercel, we still need to serve static files if it's not an API call
-  const distPath = path.join(process.cwd(), "dist");
-  app.use(express.static(distPath));
-  // Note: Vercel routes will handle the fallback usually, but this is a safety net
+  // Production / Vercel
+  setupVite();
 }
 
 export default app;

@@ -11,14 +11,16 @@
           try {
             var nativeFetch = window.fetch;
             if (nativeFetch) {
+              // Define fetch with a dummy setter to prevent crashes when libraries try to polyfill it
               Object.defineProperty(window, 'fetch', {
-                value: nativeFetch.bind(window),
+                get: function() { return nativeFetch; },
+                set: function() { /* Prevent crash on assignment */ },
                 configurable: true,
-                writable: true,
+                enumerable: true
               });
             }
           } catch (e) {
-            // Ignore errors if we can't redefine fetch
+            // Ignore errors
           }
         }
       })();
