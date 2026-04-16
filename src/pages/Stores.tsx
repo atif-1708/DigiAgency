@@ -50,6 +50,34 @@ export default function Stores() {
   }, [profile]);
 
   const [isSyncing, setIsSyncing] = useState<string | null>(null);
+  const [isTestingShopify, setIsTestingShopify] = useState(false);
+
+  async function handleTestShopify(domain: string, token: string) {
+    if (!domain || !token) {
+      toast.error('Please enter domain and token first');
+      return;
+    }
+
+    setIsTestingShopify(true);
+    try {
+      const response = await fetch('/api/shopify/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain, token })
+      });
+      
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Connection failed');
+      
+      toast.success('Shopify connection successful!', { 
+        description: `Connected to: ${result.shop?.name || domain}` 
+      });
+    } catch (error: any) {
+      toast.error('Shopify connection failed', { description: error.message });
+    } finally {
+      setIsTestingShopify(false);
+    }
+  }
 
   async function handleSync(storeId: string) {
     setIsSyncing(storeId);
@@ -291,13 +319,25 @@ export default function Stores() {
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="token">Shopify Admin API Token</Label>
-                    <Input 
-                      id="token" 
-                      type="password" 
-                      value={newStore.token}
-                      onChange={e => setNewStore({...newStore, token: e.target.value})}
-                      required
-                    />
+                    <div className="flex gap-2">
+                      <Input 
+                        id="token" 
+                        type="password" 
+                        value={newStore.token}
+                        onChange={e => setNewStore({...newStore, token: e.target.value})}
+                        required
+                        className="flex-1"
+                      />
+                      <Button 
+                        type="button" 
+                        variant="secondary" 
+                        size="sm"
+                        onClick={() => handleTestShopify(newStore.domain, newStore.token)}
+                        disabled={isTestingShopify}
+                      >
+                        {isTestingShopify ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Test'}
+                      </Button>
+                    </div>
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="metaAppId">Meta App ID</Label>
@@ -497,13 +537,25 @@ export default function Stores() {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="edit-token">Shopify Admin API Token</Label>
-                <Input 
-                  id="edit-token" 
-                  type="password" 
-                  value={editingStore?.shopify_access_token || ''}
-                  onChange={e => setEditingStore({...editingStore, shopify_access_token: e.target.value})}
-                  required
-                />
+                <div className="flex gap-2">
+                  <Input 
+                    id="edit-token" 
+                    type="password" 
+                    value={editingStore?.shopify_access_token || ''}
+                    onChange={e => setEditingStore({...editingStore, shopify_access_token: e.target.value})}
+                    required
+                    className="flex-1"
+                  />
+                  <Button 
+                    type="button" 
+                    variant="secondary" 
+                    size="sm"
+                    onClick={() => handleTestShopify(editingStore?.shopify_domain, editingStore?.shopify_access_token)}
+                    disabled={isTestingShopify}
+                  >
+                    {isTestingShopify ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Test'}
+                  </Button>
+                </div>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="edit-metaAppId">Meta App ID</Label>

@@ -28,13 +28,47 @@ const supabaseAdmin = createClient(
 
 // Logger
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  // Add response-end listener to log status
+  res.on('finish', () => {
+    console.log(`${new Date().toISOString()} - [Response] ${res.statusCode} for ${req.method} ${req.url}`);
+  });
   next();
 });
 
 // API Routes
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+app.post("/api/shopify/test", async (req, res) => {
+  const { domain, token } = req.body;
+  if (!domain || !token) {
+    return res.status(400).json({ error: "Domain and Token are required" });
+  }
+
+  try {
+    const cleanDomain = domain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const cleanToken = token.trim().replace(/^["']|["']$/g, '');
+    
+    // We try a simple Shop query to verify the token
+    const response = await axios.get(
+      `https://${cleanDomain}/admin/api/2024-01/shop.json`,
+      {
+        headers: { 
+          'X-Shopify-Access-Token': cleanToken,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+    
+    res.json({ success: true, shop: response.data.shop });
+  } catch (error: any) {
+    const status = error.response?.status;
+    const msg = error.response?.data?.errors || error.message;
+    res.status(status || 500).json({ error: msg });
+  }
 });
 
 app.post("/api/meta/ad-accounts", async (req, res) => {
@@ -230,7 +264,8 @@ app.get("/api/performance", async (req, res) => {
                   'X-Shopify-Access-Token': cleanToken,
                   'Content-Type': 'application/json'
                 },
-                params: { status: 'any', created_at_min: shopifySince, limit: 250 }
+                params: { status: 'any', created_at_min: shopifySince, limit: 250 },
+                timeout: 8000 // 8 second timeout
               }
             );
           } catch (firstErr: any) {
@@ -247,7 +282,8 @@ app.get("/api/performance", async (req, res) => {
                     'X-Shopify-Access-Token': cleanToken,
                     'Content-Type': 'application/json'
                   },
-                  params: { status: 'any', created_at_min: shopifySince, limit: 250 }
+                  params: { status: 'any', created_at_min: shopifySince, limit: 250 },
+                  timeout: 8000 // 8 second timeout
                 }
               );
               console.log(`[Performance API] Fallback sync successful with ${fallbackDomain}`);
@@ -286,7 +322,7 @@ app.get("/api/performance", async (req, res) => {
                   fields: "name,status,start_time",
                   limit: 1000
                 },
-                timeout: 20000
+                timeout: 8000 // 8 second timeout
               }
             );
 
@@ -300,7 +336,7 @@ app.get("/api/performance", async (req, res) => {
                   fields: "campaign_id,spend,purchase_roas,actions",
                   time_range: JSON.stringify(timeRange),
                 },
-                timeout: 20000
+                timeout: 8000 // 8 second timeout
               }
             );
 

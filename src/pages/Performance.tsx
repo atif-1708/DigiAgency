@@ -91,6 +91,14 @@ export default function Performance() {
       }
 
       const response = await fetch(`/api/performance?${params.toString()}`);
+      
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text();
+        console.error("Non-JSON response received:", text);
+        throw new Error(`Server returned an unexpected response format (${response.status}). Please try refreshing in a few moments.`);
+      }
+
       const result = await response.json();
 
       if (!result.success) throw new Error(result.error);
