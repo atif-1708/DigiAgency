@@ -68,27 +68,27 @@ export default function Performance() {
         params.append('employeeId', profile.id);
       }
 
-      if (dateRange !== 'all-time') {
-        let start = new Date();
-        let end = new Date();
-        
-        if (dateRange === 'today') {
-          start.setHours(0,0,0,0);
-        } else if (dateRange === 'yesterday') {
-          start.setDate(start.getDate() - 1);
-          end.setDate(end.getDate() - 1);
-        } else if (dateRange === 'last-7-days') {
-          start.setDate(start.getDate() - 7);
-        } else if (dateRange === 'last-30-days') {
-          start.setDate(start.getDate() - 30);
-        } else if (dateRange === 'custom' && customDates.start && customDates.end) {
-          start = new Date(customDates.start);
-          end = new Date(customDates.end);
-        }
-
-        params.append('startDate', formatLocalYYYYMMDD(start));
-        params.append('endDate', formatLocalYYYYMMDD(end));
+      let start = new Date();
+      let end = new Date();
+      
+      if (dateRange === 'today') {
+        start.setHours(0,0,0,0);
+      } else if (dateRange === 'yesterday') {
+        start.setDate(start.getDate() - 1);
+        end.setDate(end.getDate() - 1);
+      } else if (dateRange === 'last-7-days') {
+        start.setDate(start.getDate() - 7);
+      } else if (dateRange === 'last-30-days') {
+        start.setDate(start.getDate() - 30);
+      } else if (dateRange === 'last-60-days') {
+        start.setDate(start.getDate() - 60);
+      } else if (dateRange === 'custom' && customDates.start && customDates.end) {
+        start = new Date(customDates.start);
+        end = new Date(customDates.end);
       }
+
+      params.append('startDate', formatLocalYYYYMMDD(start));
+      params.append('endDate', formatLocalYYYYMMDD(end));
 
       const response = await fetch(`/api/performance?${params.toString()}`);
       
@@ -177,7 +177,7 @@ export default function Performance() {
                   <SelectItem value="yesterday">Yesterday</SelectItem>
                   <SelectItem value="last-7-days">Last 7 Days</SelectItem>
                   <SelectItem value="last-30-days">Last 30 Days</SelectItem>
-                  <SelectItem value="all-time">All Time</SelectItem>
+                  <SelectItem value="last-60-days">Last 60 Days</SelectItem>
                   <SelectItem value="custom">Custom Range</SelectItem>
                 </SelectContent>
               </Select>

@@ -14,6 +14,18 @@ const __dirname = path.dirname(__filename);
 export const app = express();
 app.use(express.json());
 
+// Logger - Moved to top for visibility on all requests
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  res.on('finish', () => {
+    console.log(`${new Date().toISOString()} - [Response] ${res.statusCode} for ${req.method} ${req.url}`);
+  });
+  next();
+});
+
+const apiRouter = express.Router();
+app.use("/api", apiRouter);
+
 // Initialize Supabase Admin Client
 const supabaseAdmin = createClient(
   process.env.VITE_SUPABASE_URL || "",
@@ -26,22 +38,27 @@ const supabaseAdmin = createClient(
   }
 );
 
-// Logger
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-  // Add response-end listener to log status
-  res.on('finish', () => {
-    console.log(`${new Date().toISOString()} - [Response] ${res.statusCode} for ${req.method} ${req.url}`);
+// Health check
+apiRouter.get("/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString(), platform: process.env.VERCEL ? 'vercel' : 'run' });
+});
+
+// Debug / Diagnostics
+apiRouter.get("/debug", (req, res) => {
+  res.json({
+    env: {
+      NODE_ENV: process.env.NODE_ENV,
+      VERCEL: process.env.VERCEL,
+      HAS_SUPABASE_URL: !!process.env.VITE_SUPABASE_URL,
+      HAS_SUPABASE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    },
+    headers: req.headers,
+    url: req.url,
+    originalUrl: req.originalUrl
   });
-  next();
 });
 
-// API Routes
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
-
-app.post("/api/shopify/test", async (req, res) => {
+apiRouter.post("/shopify/test", async (req, res) => {
   const { domain, token } = req.body;
   if (!domain || !token) {
     return res.status(400).json({ error: "Domain and Token are required" });
@@ -52,7 +69,7 @@ app.post("/api/shopify/test", async (req, res) => {
     const cleanToken = token.trim().replace(/^["']|["']$/g, '');
     
     // We try a simple Shop query to verify the token
-    const response = await axios.get(
+    const shopifyResponse = await axios.get(
       `https://${cleanDomain}/admin/api/2024-01/shop.json`,
       {
         headers: { 
@@ -63,22 +80,25 @@ app.post("/api/shopify/test", async (req, res) => {
       }
     );
     
-    res.json({ success: true, shop: response.data.shop });
+    res.json({ success: true, shop: shopifyResponse.data.shop });
   } catch (error: any) {
     const status = error.response?.status;
-    const msg = error.response?.data?.errors || error.message;
+    let msg = error.response?.data?.errors || error.message;
+    if (status === 401) {
+      msg = "Invalid Shopify Access Token (401). Please ensure you are using the 'Admin API access token' (shpat_...) and NOT the API key/secret.";
+    }
     res.status(status || 500).json({ error: msg });
   }
 });
 
-app.post("/api/meta/ad-accounts", async (req, res) => {
+apiRouter.post("/meta/ad-accounts", async (req, res) => {
   const { accessToken } = req.body;
   if (!accessToken) {
     return res.status(400).json({ error: "Access token is required" });
   }
 
   try {
-    const response = await axios.get(
+    const metaResponse = await axios.get(
       `https://graph.facebook.com/v19.0/me/adaccounts`,
       {
         params: {
@@ -87,7 +107,7 @@ app.post("/api/meta/ad-accounts", async (req, res) => {
         },
       }
     );
-    res.json({ success: true, data: response.data.data });
+    res.json({ success: true, data: metaResponse.data.data });
   } catch (error: any) {
     console.error("Meta API Error:", error.response?.data || error.message);
     res.status(500).json({ 
@@ -96,7 +116,7 @@ app.post("/api/meta/ad-accounts", async (req, res) => {
   }
 });
 
-app.post("/api/admin/create-user", async (req, res) => {
+apiRouter.post("/admin/create-user", async (req, res) => {
   const { email, password, fullName, role, agencyId, identifier, storeId } = req.body;
   try {
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -125,7 +145,7 @@ app.post("/api/admin/create-user", async (req, res) => {
   }
 });
 
-app.post("/api/meta/sync-campaigns", async (req, res) => {
+apiRouter.post("/meta/sync-campaigns", async (req, res) => {
   const { storeId } = req.body;
 
   if (!storeId) {
@@ -133,15 +153,15 @@ app.post("/api/meta/sync-campaigns", async (req, res) => {
   }
 
   try {
-    const result = await syncStoreCampaigns(storeId);
-    res.json({ success: true, count: result.length });
+    const syncResult = await syncStoreCampaigns(storeId);
+    res.json({ success: true, count: syncResult.length });
   } catch (error: any) {
     console.error("Sync Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post("/api/meta/sync-agency", async (req, res) => {
+apiRouter.post("/meta/sync-agency", async (req, res) => {
   const { agencyId } = req.body;
 
   if (!agencyId) {
@@ -177,7 +197,7 @@ app.post("/api/meta/sync-agency", async (req, res) => {
 const performanceCache = new Map<string, { data: any, timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-app.get("/api/performance", async (req, res) => {
+apiRouter.get("/performance", async (req, res) => {
   const { agencyId, employeeId, storeId, startDate, endDate, refresh } = req.query;
 
   console.log(`[Performance API] Request: Agency=${agencyId}, Store=${storeId}, Emp=${employeeId}, Start=${startDate}, End=${endDate}, Refresh=${refresh}`);
@@ -191,11 +211,13 @@ app.get("/api/performance", async (req, res) => {
   delete cacheParams.refresh;
   const cacheKey = JSON.stringify(cacheParams);
   
-  const cached = performanceCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL && refresh !== 'true') {
+  const cachedData = performanceCache.get(cacheKey);
+  if (cachedData && Date.now() - cachedData.timestamp < CACHE_TTL && refresh !== 'true') {
     console.log(`[Performance API] Returning cached data for ${agencyId}`);
-    return res.json({ success: true, data: cached.data, fromCache: true });
+    return res.json({ success: true, data: cachedData.data, fromCache: true });
   }
+
+  // ... (Rest of performance API logic - I'll keep it integrated)
 
   // Meta expects YYYY-MM-DD. If we get ISO strings, we extract the date part.
   // If we get YYYY-MM-DD directly, we use it.
@@ -600,7 +622,7 @@ async function syncStoreCampaigns(storeId: string) {
   return results;
 }
 
-// Catch-all for API routes
+// Catch-all for API routes (if router didn't handle it)
 app.all("/api/*", (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
 });
@@ -633,6 +655,7 @@ async function startServer() {
   app.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Agency ID: ${process.env.VITE_SUPABASE_URL ? 'Configured' : 'Missing'}`);
   });
 }
 

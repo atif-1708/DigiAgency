@@ -83,26 +83,34 @@ export default function ShopifyAnalytics() {
       
       if (isRefresh) params.append('refresh', 'true');
 
-      if (dateRange !== 'all-time') {
-        let start = new Date();
-        let end = new Date();
-        
-        if (dateRange === 'today') {
-          start.setHours(0,0,0,0);
-        } else if (dateRange === 'yesterday') {
-          start.setDate(start.getDate() - 1);
-          end.setDate(end.getDate() - 1);
-        } else if (dateRange === 'last-7-days') {
-          start.setDate(start.getDate() - 7);
-        } else if (dateRange === 'last-30-days') {
-          start.setDate(start.getDate() - 30);
-        }
-
-        params.append('startDate', formatLocalYYYYMMDD(start));
-        params.append('endDate', formatLocalYYYYMMDD(end));
+      let start = new Date();
+      let end = new Date();
+      
+      if (dateRange === 'today') {
+        start.setHours(0,0,0,0);
+      } else if (dateRange === 'yesterday') {
+        start.setDate(start.getDate() - 1);
+        end.setDate(end.getDate() - 1);
+      } else if (dateRange === 'last-7-days') {
+        start.setDate(start.getDate() - 7);
+      } else if (dateRange === 'last-30-days') {
+        start.setDate(start.getDate() - 30);
+      } else if (dateRange === 'last-60-days') {
+        start.setDate(start.getDate() - 60);
       }
 
+      params.append('startDate', formatLocalYYYYMMDD(start));
+      params.append('endDate', formatLocalYYYYMMDD(end));
+
       const response = await fetch(`/api/performance?${params.toString()}`);
+      
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text();
+        console.error("Non-JSON response (ShopifyAnalytics):", text);
+        throw new Error(`Server returned HTML instead of data (${response.status}). This usually means the API route was not found.`);
+      }
+
       const result = await response.json();
 
       if (!result.success) throw new Error(result.error);
@@ -201,7 +209,7 @@ export default function ShopifyAnalytics() {
               <SelectItem value="yesterday">Yesterday</SelectItem>
               <SelectItem value="last-7-days">Last 7 Days</SelectItem>
               <SelectItem value="last-30-days">Last 30 Days</SelectItem>
-              <SelectItem value="all-time">All Time</SelectItem>
+              <SelectItem value="last-60-days">Last 60 Days</SelectItem>
             </SelectContent>
           </Select>
           <Button variant="outline" className="gap-2" onClick={() => fetchData(true)} disabled={loading}>
