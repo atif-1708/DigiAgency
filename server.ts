@@ -571,17 +571,15 @@ app.all("/api/*", (req, res) => {
 
 async function startServer() {
   if (process.env.NODE_ENV === "production" || process.env.VITE_PROD === "true") {
-    const distPath = path.resolve(__dirname, "dist");
+    const distPath = path.join(process.cwd(), "dist");
     console.log(`[Server] Serving static files from: ${distPath}`);
     app.use(express.static(distPath));
     
-    // API 404 handler
-    app.use("/api/*", (req, res) => {
-      res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
-    });
-
     // SPA fallback
     app.get("*", (req, res) => {
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ error: `API route not found: ${req.path}` });
+      }
       res.sendFile(path.join(distPath, "index.html"));
     });
   } else {
