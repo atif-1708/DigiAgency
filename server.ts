@@ -210,24 +210,53 @@ app.get("/api/performance", async (req, res) => {
       if (store.shopify_domain && store.shopify_access_token) {
         try {
           // Normalize domain: remove https:// and any trailing slashes
-          const cleanDomain = store.shopify_domain
+          let cleanDomain = store.shopify_domain
+            .trim()
             .replace(/^https?:\/\//, '')
             .replace(/\/$/, '');
+            
+          // Clean token (remove quotes/whitespace that might come from copy-paste)
+          const cleanToken = store.shopify_access_token.trim().replace(/^["']|["']$/g, '');
             
           const shopifySince = new Date(since).toISOString();
           console.log(`[Performance API] Attempting Shopify Sync for ${store.name} (${cleanDomain}) since ${shopifySince}`);
           
-          const shopifyRes = await axios.get(
-            `https://${cleanDomain}/admin/api/2024-01/orders.json`,
-            {
-              headers: { 
-                'X-Shopify-Access-Token': store.shopify_access_token,
-                'Content-Type': 'application/json'
-              },
-              params: { status: 'any', created_at_min: shopifySince, limit: 250 }
+          let shopifyRes;
+          try {
+            shopifyRes = await axios.get(
+              `https://${cleanDomain}/admin/api/2024-01/orders.json`,
+              {
+                headers: { 
+                  'X-Shopify-Access-Token': cleanToken,
+                  'Content-Type': 'application/json'
+                },
+                params: { status: 'any', created_at_min: shopifySince, limit: 250 }
+              }
+            );
+          } catch (firstErr: any) {
+            // If failed with 401 or not found, try .myshopify.com fallback
+            if ((firstErr.response?.status === 401 || firstErr.code === 'ENOTFOUND') && !cleanDomain.includes('.myshopify.com')) {
+              console.log(`[Performance API] Primary domain ${cleanDomain} failed, trying .myshopify.com fallback...`);
+              const storeName = cleanDomain.split('.')[0];
+              const fallbackDomain = `${storeName}.myshopify.com`;
+              
+              shopifyRes = await axios.get(
+                `https://${fallbackDomain}/admin/api/2024-01/orders.json`,
+                {
+                  headers: { 
+                    'X-Shopify-Access-Token': cleanToken,
+                    'Content-Type': 'application/json'
+                  },
+                  params: { status: 'any', created_at_min: shopifySince, limit: 250 }
+                }
+              );
+              console.log(`[Performance API] Fallback sync successful with ${fallbackDomain}`);
+            } else {
+              throw firstErr;
             }
-          );
-          shopifyOrders = shopifyRes.data.orders || [];
+          }
+          
+          shopifyOrders = shopifyRes?.data?.orders || [];
           console.log(`[Performance API] Successfully fetched ${shopifyOrders.length} orders from Shopify for ${store.name}`);
         } catch (err: any) {
           const status = err.response?.status;
@@ -235,7 +264,7 @@ app.get("/api/performance", async (req, res) => {
           console.error(`[Performance API] Shopify Error [${status}] for ${store.name}:`, msg);
           
           if (status === 401) {
-            console.error(`[CRITICAL] Store "${store.name}" has an invalid Shopify Access Token. Please verify the token has 'read_orders' scopes.`);
+            console.error(`[CRITICAL] Invalid Shopify Token for "${store.name}". Ensure it is the "Admin API Access Token" (shpat_...).`);
           }
         }
       }
@@ -414,55 +443,69 @@ async function syncStoreCampaigns(storeId: string) {
         let shopifyCancelled = 0;
         let shopifyRevenue = 0;
 
-        try {
-          // Fetch orders from Shopify for this campaign's timeframe (approx)
-          // We'll filter by UTM parameters in the response
-          const shopifyRes = await axios.get(
-            `https://${store.shopify_domain}/admin/api/2024-01/orders.json`,
-            {
-              headers: {
-                'X-Shopify-Access-Token': store.shopify_access_token
-              },
-              params: {
-                status: 'any',
-                created_at_min: camp.start_time || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-              }
-            }
-          );
-
-          const orders = shopifyRes.data.orders || [];
-          const identifier = matchedEmployee?.identifier?.toLowerCase();
-
-          for (const order of orders) {
-            // Check landing_site for UTM parameters
-            const landingSite = (order.landing_site || "").toLowerCase();
-            const noteAttributes = order.note_attributes || [];
+        if (store.shopify_domain && store.shopify_access_token) {
+          try {
+            const cleanDomain = store.shopify_domain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+            const cleanToken = store.shopify_access_token.trim().replace(/^["']|["']$/g, '');
             
-            // Basic matching: Check if campaign name or employee identifier is in UTMs
-            const isMatch = (identifier && landingSite.includes(identifier)) || 
-                           landingSite.includes(camp.id) || 
-                           landingSite.includes(camp.name.toLowerCase().replace(/\s+/g, '_'));
-
-            if (isMatch) {
-              const totalPrice = parseFloat(order.total_price || "0");
-              
-              if (order.cancelled_at) {
-                shopifyCancelled++;
-              } else if (order.fulfillment_status === 'fulfilled') {
-                shopifyConfirmed++;
-                shopifyRevenue += totalPrice;
+            // Try fetching orders
+            let shopifyRes;
+            try {
+              shopifyRes = await axios.get(
+                `https://${cleanDomain}/admin/api/2024-01/orders.json`,
+                {
+                  headers: { 'X-Shopify-Access-Token': cleanToken },
+                  params: {
+                    status: 'any',
+                    created_at_min: camp.start_time || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+                  }
+                }
+              );
+            } catch (e: any) {
+              if (!cleanDomain.includes('.myshopify.com')) {
+                const fallback = `${cleanDomain.split('.')[0]}.myshopify.com`;
+                shopifyRes = await axios.get(
+                  `https://${fallback}/admin/api/2024-01/orders.json`,
+                  {
+                    headers: { 'X-Shopify-Access-Token': cleanToken },
+                    params: {
+                      status: 'any',
+                      created_at_min: camp.start_time || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+                    }
+                  }
+                );
               } else {
-                shopifyPending++;
-                // Sometimes pending orders also count towards revenue depending on business logic
-                shopifyRevenue += totalPrice; 
+                throw e;
               }
             }
+
+            const orders = shopifyRes?.data?.orders || [];
+            const identifier = matchedEmployee?.identifier?.toLowerCase();
+
+            for (const order of orders) {
+              const landingSite = (order.landing_site || "").toLowerCase();
+              const isMatch = (identifier && landingSite.includes(identifier)) || 
+                             landingSite.includes(camp.id) || 
+                             landingSite.includes(camp.name.toLowerCase().replace(/\s+/g, '_'));
+
+              if (isMatch) {
+                const totalPrice = parseFloat(order.total_price || "0");
+                if (order.cancelled_at) {
+                  shopifyCancelled++;
+                } else if (order.fulfillment_status === 'fulfilled') {
+                  shopifyConfirmed++;
+                  shopifyRevenue += totalPrice;
+                } else {
+                  shopifyPending++;
+                  shopifyRevenue += totalPrice; 
+                }
+              }
+            }
+          } catch (shError: any) {
+            console.error(`Shopify Sync Error for ${store.name}:`, shError.message);
+            // Fallback to meta data/random for mock logic if needed, 
+            // but for real sync we'll stick to 0 if Shopify fails
           }
-        } catch (shError: any) {
-          console.error(`Shopify API Error for ${store.name}:`, shError.response?.data || shError.message);
-          // Fallback to mock data if Shopify fails to avoid breaking Meta sync
-          shopifyRevenue = spend * (1.5 + Math.random() * 2);
-          shopifyConfirmed = Math.floor(shopifyRevenue / 50);
         }
 
         // Ensure date is valid

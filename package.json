@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
-    "start": "tsx server.ts",
-    "clean": "rm -rf dist",
+    "build:client": "vite build",
+    "build:server": "esbuild server.ts --bundle --platform=node --target=node20 --outfile=dist-server/server.cjs --external:vite --external:express --external:axios --external:dotenv --external:@supabase/supabase-js",
+    "build": "npm run build:client && npm run build:server",
+    "start": "NODE_ENV=production node dist-server/server.cjs",
+    "clean": "rm -rf dist dist-server",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -22,6 +24,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
+    "esbuild": "^0.28.0",
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
