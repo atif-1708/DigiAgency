@@ -627,20 +627,27 @@ app.all("/api/*", (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
 });
 
+// Start the server
 async function startServer() {
-  const isProd = process.env.NODE_ENV === "production" || process.env.VITE_PROD === "true" || process.env.VERCEL === "1";
+  const isProd = process.env.NODE_ENV === "production" || process.env.VITE_PROD === "true";
   
   if (isProd) {
     const distPath = path.join(process.cwd(), "dist");
     console.log(`[Server] Production Mode: Serving static files from ${distPath}`);
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, { index: false })); // Don't auto-serve index.html for everything
     
     // SPA fallback
     app.get("*", (req, res) => {
-      // If it's an API route that somehow fell through
-      if (req.path.startsWith('/api/')) {
-        return res.status(404).json({ error: `API route not found: ${req.path}` });
+      // Very defensive check for API routes
+      if (req.url.startsWith('/api/') || req.path.startsWith('/api/')) {
+        console.warn(`[Server] API Route Fallthrough Detected: ${req.method} ${req.url}`);
+        return res.status(404).json({ 
+          success: false, 
+          error: `API route not found on server: ${req.method} ${req.url}` 
+        });
       }
+      
+      console.log(`[Server] Serving SPA fallback for: ${req.url}`);
       res.sendFile(path.join(distPath, "index.html"));
     });
   } else {
@@ -651,11 +658,11 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
   app.listen(Number(PORT), "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`Agency ID: ${process.env.VITE_SUPABASE_URL ? 'Configured' : 'Missing'}`);
+    console.log(`[Server] listening on 0.0.0.0:${PORT}`);
+    console.log(`[Server] Mode: ${isProd ? 'Production' : 'Development'}`);
+    console.log(`[Server] API Router mounted at /api`);
   });
 }
 
