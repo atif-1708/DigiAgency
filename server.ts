@@ -171,7 +171,7 @@ app.get("/api/performance", async (req, res) => {
     return dateStr;
   };
 
-  const since = formatMetaDate(startDate) || new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0];
+  const since = formatMetaDate(startDate) || '2023-01-01'; // Use far date for All Time
   const until = formatMetaDate(endDate) || new Date().toISOString().split('T')[0];
   
   const timeRange = { since, until };
@@ -570,21 +570,26 @@ app.all("/api/*", (req, res) => {
 });
 
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV === "production" || process.env.VITE_PROD === "true") {
+    const distPath = path.resolve(__dirname, "dist");
+    console.log(`[Server] Serving static files from: ${distPath}`);
+    app.use(express.static(distPath));
+    
+    // API 404 handler
+    app.use("/api/*", (req, res) => {
+      res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
+    });
+
+    // SPA fallback
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
+  } else {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      if (req.path.startsWith('/api/')) {
-        return res.status(404).json({ error: 'API endpoint not found' });
-      }
-      res.sendFile(path.join(distPath, "index.html"));
-    });
   }
 
   const PORT = 3000;
