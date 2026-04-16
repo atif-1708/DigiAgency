@@ -87,13 +87,20 @@ export default function Agencies() {
         })
       });
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Failed to create owner');
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to create owner');
 
-      toast.success('Agency Owner added successfully');
-      setOwnerForm({ name: '', email: '', password: '' });
-      setSelectedAgency(null);
-      fetchAgencies();
+        toast.success('Agency Owner added successfully');
+        setOwnerForm({ name: '', email: '', password: '' });
+        setSelectedAgency(null);
+        fetchAgencies();
+      } else {
+        const text = await response.text();
+        console.error('Non-JSON response:', text);
+        throw new Error(`Server returned an unexpected response: ${text.substring(0, 100)}...`);
+      }
     } catch (error: any) {
       toast.error('Failed to add owner', { description: error.message });
     } finally {

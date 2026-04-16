@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Store as StoreIcon, RefreshCcw, ShieldCheck, Loader2 } from 'lucide-react';
+import { Plus, Store as StoreIcon, RefreshCcw, ShieldCheck, Loader2, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -23,13 +23,16 @@ export default function Stores() {
   const [stores, setStores] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [editingStore, setEditingStore] = useState<any>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
   
   // Form state
   const [newStore, setNewStore] = useState({
     name: '',
     domain: '',
     token: '',
-    adAccountId: '',
+    adAccountIds: [] as string[],
     metaAppId: '',
     metaAppSecret: '',
     metaAccessToken: ''
@@ -78,11 +81,17 @@ export default function Stores() {
         body: JSON.stringify({ accessToken: newStore.metaAccessToken })
       });
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Failed to fetch ad accounts');
-
-      setFetchedAdAccounts(result.data || []);
-      toast.success(`Fetched ${result.data?.length || 0} ad accounts`);
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to fetch ad accounts');
+        setFetchedAdAccounts(result.data || []);
+        toast.success(`Fetched ${result.data?.length || 0} ad accounts`);
+      } else {
+        const text = await response.text();
+        console.error('Non-JSON response:', text);
+        throw new Error(`Server returned an unexpected response: ${text.substring(0, 100)}...`);
+      }
     } catch (error: any) {
       toast.error('Failed to fetch ad accounts', { description: error.message });
     } finally {
@@ -94,6 +103,11 @@ export default function Stores() {
     e.preventDefault();
     if (!profile?.agency_id) {
       toast.error('No agency associated with your account');
+      return;
+    }
+
+    if (newStore.adAccountIds.length === 0) {
+      toast.error('Please select at least one ad account');
       return;
     }
 
@@ -112,31 +126,79 @@ export default function Stores() {
 
       if (storeError) throw storeError;
 
-      if (newStore.adAccountId) {
-        const { error: adError } = await supabase.from('ad_accounts').insert({
-          store_id: storeData.id,
-          ad_account_id: newStore.adAccountId,
-          name: `${newStore.name} Ad Account`,
-          status: 'Active'
+      if (newStore.adAccountIds.length > 0) {
+        const adAccountsToInsert = newStore.adAccountIds.map(id => {
+          const accInfo = fetchedAdAccounts.find(a => a.id === id);
+          return {
+            store_id: storeData.id,
+            ad_account_id: id,
+            name: accInfo?.name || 'Ad Account',
+            status: 'Active'
+          };
         });
+
+        const { error: adError } = await supabase.from('ad_accounts').insert(adAccountsToInsert);
         if (adError) throw adError;
       }
 
-      toast.success('Store and Ad Account connected successfully');
+      toast.success('Store and Ad Accounts connected successfully');
       setNewStore({ 
         name: '', 
         domain: '', 
         token: '', 
-        adAccountId: '',
+        adAccountIds: [],
         metaAppId: '',
         metaAppSecret: '',
         metaAccessToken: ''
       });
+      setFetchedAdAccounts([]);
       fetchStores();
     } catch (error: any) {
       toast.error('Failed to add store', { description: error.message });
     } finally {
       setIsAdding(false);
+    }
+  }
+
+  async function handleDeleteStore(id: string) {
+    if (!confirm('Are you sure you want to delete this store? This will also remove associated ad accounts.')) return;
+
+    setIsDeleting(true);
+    try {
+      const { error } = await supabase.from('stores').delete().eq('id', id);
+      if (error) throw error;
+      toast.success('Store deleted successfully');
+      fetchStores();
+    } catch (error: any) {
+      toast.error('Failed to delete store', { description: error.message });
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  async function handleUpdateStore(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingStore) return;
+
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase.from('stores').update({
+        name: editingStore.name,
+        shopify_domain: editingStore.shopify_domain,
+        shopify_access_token: editingStore.shopify_access_token,
+        meta_app_id: editingStore.meta_app_id,
+        meta_app_secret: editingStore.meta_app_secret,
+        meta_access_token: editingStore.meta_access_token
+      }).eq('id', editingStore.id);
+
+      if (error) throw error;
+      toast.success('Store updated successfully');
+      setEditingStore(null);
+      fetchStores();
+    } catch (error: any) {
+      toast.error('Failed to update store', { description: error.message });
+    } finally {
+      setIsUpdating(false);
     }
   }
 
@@ -245,21 +307,34 @@ export default function Stores() {
 
                 {fetchedAdAccounts.length > 0 && (
                   <div className="grid gap-2">
-                    <Label htmlFor="adAccountSelect">Select Ad Account</Label>
-                    <select
-                      id="adAccountSelect"
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      value={newStore.adAccountId}
-                      onChange={e => setNewStore({...newStore, adAccountId: e.target.value})}
-                      required
-                    >
-                      <option value="">-- Choose Ad Account --</option>
+                    <Label>Select Ad Accounts</Label>
+                    <div className="max-h-[200px] overflow-y-auto border rounded-md p-2 space-y-2 bg-background/50">
                       {fetchedAdAccounts.map(acc => (
-                        <option key={acc.id} value={acc.id}>
-                          {acc.name} ({acc.account_id})
-                        </option>
+                        <div key={acc.id} className="flex items-center space-x-2 p-1 hover:bg-accent/50 rounded transition-colors">
+                          <input
+                            type="checkbox"
+                            id={`acc-${acc.id}`}
+                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                            checked={newStore.adAccountIds.includes(acc.id)}
+                            onChange={(e) => {
+                              const ids = e.target.checked 
+                                ? [...newStore.adAccountIds, acc.id]
+                                : newStore.adAccountIds.filter(id => id !== acc.id);
+                              setNewStore({...newStore, adAccountIds: ids});
+                            }}
+                          />
+                          <label 
+                            htmlFor={`acc-${acc.id}`} 
+                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex-1"
+                          >
+                            {acc.name} <span className="text-xs text-muted-foreground">({acc.account_id})</span>
+                          </label>
+                        </div>
                       ))}
-                    </select>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      {newStore.adAccountIds.length} account(s) selected
+                    </p>
                   </div>
                 )}
               </div>
@@ -287,9 +362,30 @@ export default function Stores() {
                 <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
                   <StoreIcon className="h-5 w-5" />
                 </div>
-                <Badge variant={store.status === 'Connected' ? 'default' : 'secondary'}>
-                  {store.status}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={store.status === 'Connected' ? 'default' : 'secondary'}>
+                    {store.status}
+                  </Badge>
+                  <div className="flex gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8 text-muted-foreground hover:text-primary"
+                      onClick={() => setEditingStore(store)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDeleteStore(store.id)}
+                      disabled={isDeleting}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <CardTitle className="text-xl">{store.name}</CardTitle>
@@ -317,6 +413,87 @@ export default function Stores() {
           ))}
         </div>
       )}
+
+      {/* Edit Store Dialog */}
+      <Dialog open={!!editingStore} onOpenChange={(open) => !open && setEditingStore(null)}>
+        <DialogContent className="sm:max-w-[425px]">
+          <form onSubmit={handleUpdateStore}>
+            <DialogHeader>
+              <DialogTitle>Edit Store</DialogTitle>
+              <DialogDescription>
+                Update your Shopify store and Meta Ads settings.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="edit-name">Store Name</Label>
+                <Input 
+                  id="edit-name" 
+                  value={editingStore?.name || ''}
+                  onChange={e => setEditingStore({...editingStore, name: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-domain">Shopify Domain</Label>
+                <Input 
+                  id="edit-domain" 
+                  value={editingStore?.shopify_domain || ''}
+                  onChange={e => setEditingStore({...editingStore, shopify_domain: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-token">Shopify Admin API Token</Label>
+                <Input 
+                  id="edit-token" 
+                  type="password" 
+                  value={editingStore?.shopify_access_token || ''}
+                  onChange={e => setEditingStore({...editingStore, shopify_access_token: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-metaAppId">Meta App ID</Label>
+                <Input 
+                  id="edit-metaAppId" 
+                  value={editingStore?.meta_app_id || ''}
+                  onChange={e => setEditingStore({...editingStore, meta_app_id: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-metaAppSecret">Meta App Secret</Label>
+                <Input 
+                  id="edit-metaAppSecret" 
+                  type="password"
+                  value={editingStore?.meta_app_secret || ''}
+                  onChange={e => setEditingStore({...editingStore, meta_app_secret: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-metaAccessToken">Meta Access Token</Label>
+                <Input 
+                  id="edit-metaAccessToken" 
+                  type="password"
+                  value={editingStore?.meta_access_token || ''}
+                  onChange={e => setEditingStore({...editingStore, meta_access_token: e.target.value})}
+                  required
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditingStore(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isUpdating}>
+                {isUpdating ? 'Updating...' : 'Save Changes'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Card className="border-none shadow-sm bg-card/50 backdrop-blur-sm">
         <CardHeader>

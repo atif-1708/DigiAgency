@@ -27,6 +27,11 @@ const app = express();
 app.use(express.json());
 
 // API Routes
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
@@ -93,6 +98,11 @@ app.post("/api/admin/create-user", async (req, res) => {
   }
 });
 
+// Catch-all for API routes that don't match
+app.all("/api/*", (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+});
+
 async function setupVite() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -115,17 +125,12 @@ async function setupVite() {
   }
 }
 
-// For local development
+// For local development and production in this environment
 const PORT = 3000;
-if (process.env.NODE_ENV !== "production") {
-  setupVite().then(() => {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://0.0.0.0:${PORT}`);
-    });
+setupVite().then(() => {
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
-} else {
-  // Production / Vercel
-  setupVite();
-}
+});
 
 export default app;

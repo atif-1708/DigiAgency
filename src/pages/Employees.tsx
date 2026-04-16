@@ -86,15 +86,22 @@ export default function Employees() {
         })
       });
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Failed to create user');
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to create user');
 
-      toast.success('Member added successfully!', {
-        description: `${newMember.name} has been added to the team.`
-      });
-      
-      setNewMember({ name: '', email: '', password: '', role: 'employee', identifier: '' });
-      fetchEmployees();
+        toast.success('Member added successfully!', {
+          description: `${newMember.name} has been added to the team.`
+        });
+        
+        setNewMember({ name: '', email: '', password: '', role: 'employee', identifier: '' });
+        fetchEmployees();
+      } else {
+        const text = await response.text();
+        console.error('Non-JSON response:', text);
+        throw new Error(`Server returned an unexpected response: ${text.substring(0, 100)}...`);
+      }
     } catch (error: any) {
       toast.error('Failed to add member', { description: error.message });
     } finally {
