@@ -44,46 +44,18 @@ apiRouter.get("/health", (req, res) => {
 });
 
 // Debug / Diagnostics
-apiRouter.get("/debug", async (req, res) => {
-  try {
-    const { data: stores } = await supabaseAdmin.from("stores").select("id, name, agency_id, ad_accounts(count)");
-    const { data: profiles } = await supabaseAdmin.from("profiles").select("id, full_name, role, agency_id, identifier");
-    
-    res.json({
-      status: "ok",
-      environment: process.env.NODE_ENV,
-      storesCount: stores?.length || 0,
-      profilesCount: profiles?.length || 0,
-      stores: stores || [],
-      profiles: profiles?.map(p => ({ ...p, email: 'REDACTED' })) || []
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-apiRouter.post("/meta/test-connection", async (req, res) => {
-  const { accessToken, adAccountId } = req.body;
-  if (!accessToken) return res.status(400).json({ error: "Access token is required" });
-
-  try {
-    let actId = adAccountId || 'me/adaccounts';
-    if (actId !== 'me/adaccounts' && !actId.startsWith('act_')) actId = `act_${actId}`;
-
-    const response = await axios.get(`https://graph.facebook.com/v19.0/${actId}`, {
-      params: { access_token: accessToken, fields: "id,name" },
-      timeout: 10000
-    });
-
-    res.json({ success: true, data: response.data });
-  } catch (error: any) {
-    const status = error.response?.status;
-    const msg = error.response?.data?.error?.message || error.message;
-    res.status(status || 500).json({ 
-      error: msg, 
-      details: "Check if the token has 'ads_read' permission and if the Ad Account ID is correct (including 'act_' prefix)." 
-    });
-  }
+apiRouter.get("/debug", (req, res) => {
+  res.json({
+    env: {
+      NODE_ENV: process.env.NODE_ENV,
+      VERCEL: process.env.VERCEL,
+      HAS_SUPABASE_URL: !!process.env.VITE_SUPABASE_URL,
+      HAS_SUPABASE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    },
+    headers: req.headers,
+    url: req.url,
+    originalUrl: req.originalUrl
+  });
 });
 
 apiRouter.post("/shopify/test", async (req, res) => {
@@ -228,77 +200,130 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 apiRouter.get("/performance", async (req, res) => {
   const { agencyId, employeeId, storeId, startDate, endDate, refresh } = req.query;
 
-  console.log(`[Performance API] START - Req: Agency=${agencyId}, Store=${storeId}, Emp=${employeeId}, Range=${startDate} to ${endDate}`);
+  console.log(`[Performance API] Request: Agency=${agencyId}, Store=${storeId}, Emp=${employeeId}, Start=${startDate}, End=${endDate}, Refresh=${refresh}`);
 
   if (!agencyId) {
     return res.status(400).json({ error: "Agency ID is required" });
   }
 
+  // Cache key based on all query params except 'refresh'
   const cacheParams = { ...req.query };
   delete cacheParams.refresh;
   const cacheKey = JSON.stringify(cacheParams);
   
   const cachedData = performanceCache.get(cacheKey);
   if (cachedData && Date.now() - cachedData.timestamp < CACHE_TTL && refresh !== 'true') {
-    console.log(`[Performance API] Returning CACHED data for ${agencyId}`);
+    console.log(`[Performance API] Returning cached data for ${agencyId}`);
     return res.json({ success: true, data: cachedData.data, fromCache: true });
   }
 
+  // ... (Rest of performance API logic - I'll keep it integrated)
+
+  // Meta expects YYYY-MM-DD. If we get ISO strings, we extract the date part.
+  // If we get YYYY-MM-DD directly, we use it.
   const formatMetaDate = (dateStr: any) => {
     if (!dateStr) return null;
     if (dateStr.includes('T')) return dateStr.split('T')[0];
     return dateStr;
   };
 
-  const since = formatMetaDate(startDate) || '2023-01-01';
+  const since = formatMetaDate(startDate) || '2023-01-01'; // Use far date for All Time
   const until = formatMetaDate(endDate) || new Date().toISOString().split('T')[0];
+  
   const timeRange = { since, until };
 
+  console.log(`[Performance API] Calculated Meta Time Range: ${since} to ${until}`);
+
   try {
-    const { data: stores, error: storesError } = await supabaseAdmin
+    let storesQuery = supabaseAdmin
       .from("stores")
       .select("*, ad_accounts(*)")
       .eq("agency_id", agencyId);
     
-    if (storesError) throw storesError;
+    if (storeId && storeId !== 'all-stores') {
+      storesQuery = storesQuery.eq("id", storeId);
+    }
+
+    const { data: stores, error: storesError } = await storesQuery;
+    if (storesError) {
+      console.error("[Performance API] Supabase Stores Error:", storesError);
+      throw storesError;
+    }
 
     const { data: employees } = await supabaseAdmin
       .from("profiles")
       .select("id, full_name, identifier")
       .eq("agency_id", agencyId);
 
-    console.log(`[Performance API] Found ${stores?.length || 0} stores and ${employees?.length || 0} employees`);
-
     const allCampaigns: any[] = [];
     const fetchPromises: Promise<void>[] = [];
 
     for (const store of (stores || [])) {
-      if (storeId && storeId !== 'all-stores' && store.id !== storeId) continue;
-      if (!store.meta_access_token) {
-        console.warn(`[Performance API] Store ${store.name} missing Meta token. Skipping.`);
-        continue;
-      }
+      if (!store.meta_access_token) continue;
 
-      // Pre-fetch Shopify orders if config exists
+      // --- Shopify Sync for this store ---
       let shopifyOrders: any[] = [];
       if (store.shopify_domain && store.shopify_access_token) {
         try {
-          const cleanDomain = store.shopify_domain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+          // Normalize domain: remove https:// and any trailing slashes
+          let cleanDomain = store.shopify_domain
+            .trim()
+            .replace(/^https?:\/\//, '')
+            .replace(/\/$/, '');
+            
+          // Clean token (remove quotes/whitespace that might come from copy-paste)
           const cleanToken = store.shopify_access_token.trim().replace(/^["']|["']$/g, '');
+            
           const shopifySince = new Date(since).toISOString();
+          console.log(`[Performance API] Attempting Shopify Sync for ${store.name} (${cleanDomain}) since ${shopifySince}`);
           
-          const shopifyRes = await axios.get(
-            `https://${cleanDomain}/admin/api/2024-01/orders.json`,
-            {
-              headers: { 'X-Shopify-Access-Token': cleanToken },
-              params: { status: 'any', created_at_min: shopifySince, limit: 250 },
-              timeout: 10000
+          let shopifyRes;
+          try {
+            shopifyRes = await axios.get(
+              `https://${cleanDomain}/admin/api/2024-01/orders.json`,
+              {
+                headers: { 
+                  'X-Shopify-Access-Token': cleanToken,
+                  'Content-Type': 'application/json'
+                },
+                params: { status: 'any', created_at_min: shopifySince, limit: 250 },
+                timeout: 8000 // 8 second timeout
+              }
+            );
+          } catch (firstErr: any) {
+            // If failed with 401 or not found, try .myshopify.com fallback
+            if ((firstErr.response?.status === 401 || firstErr.code === 'ENOTFOUND') && !cleanDomain.includes('.myshopify.com')) {
+              console.log(`[Performance API] Primary domain ${cleanDomain} failed, trying .myshopify.com fallback...`);
+              const storeName = cleanDomain.split('.')[0];
+              const fallbackDomain = `${storeName}.myshopify.com`;
+              
+              shopifyRes = await axios.get(
+                `https://${fallbackDomain}/admin/api/2024-01/orders.json`,
+                {
+                  headers: { 
+                    'X-Shopify-Access-Token': cleanToken,
+                    'Content-Type': 'application/json'
+                  },
+                  params: { status: 'any', created_at_min: shopifySince, limit: 250 },
+                  timeout: 8000 // 8 second timeout
+                }
+              );
+              console.log(`[Performance API] Fallback sync successful with ${fallbackDomain}`);
+            } else {
+              throw firstErr;
             }
-          );
+          }
+          
           shopifyOrders = shopifyRes?.data?.orders || [];
-          console.log(`[Performance API] Shopify: Fetched ${shopifyOrders.length} orders for ${store.name}`);
+          console.log(`[Performance API] Successfully fetched ${shopifyOrders.length} orders from Shopify for ${store.name}`);
         } catch (err: any) {
-          console.error(`[Performance API] Shopify Error for ${store.name}:`, err.message);
+          const status = err.response?.status;
+          const msg = err.response?.data?.errors || err.message;
+          console.error(`[Performance API] Shopify Error [${status}] for ${store.name}:`, msg);
+          
+          if (status === 401) {
+            console.error(`[CRITICAL] Invalid Shopify Token for "${store.name}". Ensure it is the "Admin API Access Token" (shpat_...).`);
+          }
         }
       }
 
@@ -308,80 +333,67 @@ apiRouter.get("/performance", async (req, res) => {
             let actId = adAccount.ad_account_id;
             if (!actId.startsWith('act_')) actId = `act_${actId}`;
 
-            console.log(`[Performance API] Meta: Fetching ACT ${actId} (${store.name})`);
+            console.log(`[Performance API] Fetching Meta data for ${actId} (${store.name})`);
 
-            const [campaignsRes, insightsRes] = await Promise.all([
-              axios.get(`https://graph.facebook.com/v19.0/${actId}/campaigns`, {
+            // 1. Fetch campaigns (to get status and name)
+            const campaignsPromise = axios.get(
+              `https://graph.facebook.com/v19.0/${actId}/campaigns`,
+              {
                 params: {
                   access_token: store.meta_access_token,
-                  fields: "id,name,status,start_time",
+                  fields: "name,status,start_time",
                   limit: 1000
                 },
-                timeout: 15000
-              }),
-              axios.get(`https://graph.facebook.com/v19.0/${actId}/insights`, {
+                timeout: 8000 // 8 second timeout
+              }
+            );
+
+            // 2. Fetch insights for the same period
+            const insightsPromise = axios.get(
+              `https://graph.facebook.com/v19.0/${actId}/insights`,
+              {
                 params: {
                   access_token: store.meta_access_token,
                   level: 'campaign',
                   fields: "campaign_id,spend,purchase_roas,actions",
                   time_range: JSON.stringify(timeRange),
                 },
-                timeout: 15000
-              })
-            ]);
-            
-            const metaCampaigns = campaignsRes.data.data || [];
-            const metaInsights = insightsRes.data.data || [];
-            
-            console.log(`[Performance API] Meta Result for ${actId}: ${metaCampaigns.length} campaigns, ${metaInsights.length} insights matched in date range`);
-
-            for (const camp of metaCampaigns) {
-              const campInsight = metaInsights.find((ins: any) => ins.campaign_id === camp.id);
-              const spend = parseFloat(campInsight?.spend || "0");
-
-              // JOIN with Employee logic
-              const campName = camp.name || "Unnamed Campaign";
-              
-              // More robust identifier matching
-              const matchedEmployee = employees?.find(emp => {
-                if (!emp.identifier) return false;
-                const id = emp.identifier.toLowerCase().trim();
-                if (!id) return false;
-                
-                const name = campName.toLowerCase();
-                // Match "IDENTIFIER", "[IDENTIFIER]", "IDENTIFIER-", etc.
-                const regex = new RegExp(`(^|[^a-z0-9])${id}([^a-z0-9]|$)`, 'i');
-                return regex.test(name) || name.includes(id);
-              });
-
-              if (matchedEmployee) {
-                console.log(`[Performance API] MATCH FOUND: "${campName}" -> ${matchedEmployee.full_name} (${matchedEmployee.identifier})`);
-              } else if (employees && employees.length > 0) {
-                // Log non-matches for debugging if we have employees
-                console.log(`[Performance API] NO MATCH: "${campName}" vs [${employees.map(e => e.identifier).join(', ')}]`);
+                timeout: 8000 // 8 second timeout
               }
+            );
 
-              // Apply employee filter if requested
-              if (employeeId && matchedEmployee?.id !== employeeId) {
-                continue;
-              }
+            const [campaignsRes, insightsRes] = await Promise.all([campaignsPromise, insightsPromise]);
+            
+            const campaigns = campaignsRes.data.data || [];
+            const insights = insightsRes.data.data || [];
+            
+            for (const insight of insights) {
+              const spend = parseFloat(insight.spend || "0");
+              if (spend <= 0) continue;
 
-              // Matching logic for Shopify
+              const camp = campaigns.find((c: any) => c.id === insight.campaign_id);
+              const campName = camp?.name || insight.campaign_name || "Unknown Campaign";
+              const campStatus = camp?.status || "UNKNOWN";
+
+              const matchedEmployee = employees?.find(emp => 
+                emp.identifier && campName.toLowerCase().includes(emp.identifier.toLowerCase())
+              );
+
+              if (employeeId && matchedEmployee?.id !== employeeId) continue;
+
+              // --- Shopify Matching Logic for this insight ---
               let shopifyConfirmed = 0;
               let shopifyPending = 0;
               let shopifyCancelled = 0;
               let shopifyRevenue = 0;
 
               if (shopifyOrders.length > 0) {
-                const identifier = matchedEmployee?.identifier?.toLowerCase().trim();
+                const identifier = matchedEmployee?.identifier?.toLowerCase();
                 for (const order of shopifyOrders) {
                   const landingSite = (order.landing_site || "").toLowerCase();
-                  const note = (order.note || "").toLowerCase();
-                  const tags = (order.tags || "").toLowerCase();
                   
-                  // Broad matching
-                  const isMatch = (identifier && (landingSite.includes(identifier) || note.includes(identifier) || tags.includes(identifier))) || 
-                                 landingSite.includes(camp.id) || 
+                  const isMatch = (identifier && landingSite.includes(identifier)) || 
+                                 landingSite.includes(insight.campaign_id) || 
                                  landingSite.includes(campName.toLowerCase().replace(/\s+/g, '_'));
 
                   if (isMatch) {
@@ -399,15 +411,15 @@ apiRouter.get("/performance", async (req, res) => {
                 }
               }
 
-              const metaRoas = parseFloat(campInsight?.purchase_roas?.[0]?.value || "0");
+              const metaRoas = parseFloat(insight.purchase_roas?.[0]?.value || "0");
               const metaRevenue = spend * metaRoas;
-              const metaPurchases = parseInt(campInsight?.actions?.find((a: any) => a.action_type === 'purchase')?.value || "0");
+              const metaPurchases = parseInt(insight.actions?.find((a: any) => a.action_type === 'purchase')?.value || "0");
 
               allCampaigns.push({
-                id: camp.id,
+                id: insight.campaign_id,
                 name: campName,
-                status: camp.status || "UNKNOWN",
-                start_date: camp.start_time || timeRange.since,
+                status: campStatus,
+                start_date: camp?.start_time || timeRange.since,
                 spend,
                 revenue: shopifyRevenue > 0 ? shopifyRevenue : metaRevenue,
                 confirmed_orders: shopifyConfirmed > 0 ? shopifyConfirmed : metaPurchases,
@@ -418,18 +430,11 @@ apiRouter.get("/performance", async (req, res) => {
                 store_name: store.name,
                 buyer_name: matchedEmployee?.full_name || "Unassigned",
                 employee_id: matchedEmployee?.id || null,
-                store_id: store.id,
-                is_active: camp.status === 'ACTIVE'
+                store_id: store.id
               });
             }
           } catch (err: any) {
-            const status = err.response?.status;
-            const metaError = err.response?.data?.error?.message || err.message;
-            console.error(`[Performance API] ACT ${adAccount.ad_account_id} ERROR [${status}]:`, metaError);
-            
-            if (status === 401) {
-              console.error(`[Performance API] 401 Unauthorized for ${store.name}. CHECK: 1. Token valid? 2. Is token added to Ad Account? 3. Is token 'System User' or 'User' with ads_read?`);
-            }
+            console.error(`[Performance API] Meta API Error for ${adAccount.ad_account_id}:`, err.response?.data || err.message);
           }
         })();
         fetchPromises.push(fetchPromise);
@@ -438,13 +443,12 @@ apiRouter.get("/performance", async (req, res) => {
 
     await Promise.all(fetchPromises);
     allCampaigns.sort((a, b) => b.spend - a.spend);
-    console.log(`[Performance API] COMPLETED - Sent ${allCampaigns.length} campaigns`);
-    
     performanceCache.set(cacheKey, { data: allCampaigns, timestamp: Date.now() });
+
     res.json({ success: true, data: allCampaigns });
   } catch (error: any) {
-    console.error("[Performance API] FATAL ERROR:", error);
-    res.status(500).json({ error: error.message || "Internal Server Error" });
+    console.error("[Performance API] Global Error:", error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -467,46 +471,31 @@ async function syncStoreCampaigns(storeId: string) {
 
   const results = [];
 
-      for (const adAccount of store.ad_accounts) {
-        try {
-          let actId = adAccount.ad_account_id;
-          if (!actId.startsWith('act_')) actId = `act_${actId}`;
+  // 3. For each Ad Account, fetch campaigns
+  for (const adAccount of store.ad_accounts) {
+    try {
+      const response = await axios.get(
+        `https://graph.facebook.com/v19.0/${adAccount.ad_account_id}/campaigns`,
+        {
+          params: {
+            access_token: store.meta_access_token,
+            fields: "name,status,start_time,insights{spend,purchase_roas,outbound_clicks}",
+          },
+        }
+      );
 
-          const [campaignsRes, insightsRes] = await Promise.all([
-            axios.get(`https://graph.facebook.com/v19.0/${actId}/campaigns`, {
-              params: {
-                access_token: store.meta_access_token,
-                fields: "id,name,status,start_time",
-                limit: 1000
-              }
-            }),
-            axios.get(`https://graph.facebook.com/v19.0/${actId}/insights`, {
-              params: {
-                level: 'campaign',
-                access_token: store.meta_access_token,
-                fields: "campaign_id,spend,purchase_roas,actions",
-                date_preset: 'last_30d' // Default sync range
-              }
-            })
-          ]);
+      const campaigns = response.data.data || [];
 
-          const campaigns = campaignsRes.data.data || [];
-          const insights = insightsRes.data.data || [];
+      for (const camp of campaigns) {
+        // Find matching employee
+        const matchedEmployee = employees?.find(emp => 
+          emp.identifier && camp.name.toLowerCase().includes(emp.identifier.toLowerCase())
+        );
 
-          for (const camp of campaigns) {
-            // Find matching employee
-            const matchedEmployee = employees?.find(emp => {
-              if (!emp.identifier) return false;
-              const id = emp.identifier.toLowerCase().trim();
-              const name = camp.name.toLowerCase();
-              return name.includes(id);
-            });
+        const spend = parseFloat(camp.insights?.data?.[0]?.spend || "0");
+        const metaPurchases = parseInt(camp.insights?.data?.[0]?.actions?.find((a: any) => a.action_type === 'purchase')?.value || "0");
 
-            const campInsight = insights.find((ins: any) => ins.campaign_id === camp.id);
-            const spend = parseFloat(campInsight?.spend || "0");
-            const metaPurchases = parseInt(campInsight?.actions?.find((a: any) => a.action_type === 'purchase')?.value || "0");
-
-            // --- Shopify Integration Logic ---
+        // --- Shopify Integration Logic ---
         let shopifyConfirmed = 0;
         let shopifyPending = 0;
         let shopifyCancelled = 0;

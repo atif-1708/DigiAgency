@@ -8,9 +8,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   RefreshCcw,
-  Loader2,
-  AlertCircle,
-  ExternalLink
+  Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -146,20 +144,11 @@ export default function Performance() {
 
       <Card className="border-none shadow-sm bg-card/50 backdrop-blur-sm">
         <CardHeader className="pb-4">
-          {profile?.role === 'employee' && !profile.identifier && (
-            <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-3 text-amber-500">
-              <AlertCircle className="h-5 w-5" />
-              <div className="text-sm">
-                <p className="font-semibold">Missing Identifier</p>
-                <p>Your profile does not have a suffix identifier (e.g., "PK"). Campaigns will not match your account correctly.</p>
-              </div>
-            </div>
-          )}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="relative w-full md:w-96">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input 
-                placeholder="Search campaigns, stores, or identifiers..." 
+                placeholder="Search campaigns, stores, or employees..." 
                 className="pl-10 rounded-xl bg-background/50" 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -243,23 +232,15 @@ export default function Performance() {
                 <TableRow>
                   <TableCell colSpan={9} className="h-64 text-center">
                     <div className="flex flex-col items-center justify-center gap-4 text-muted-foreground">
-                      <div className="h-16 w-16 rounded-full bg-muted/30 flex items-center justify-center">
-                        <TrendingUp className="h-8 w-8 opacity-20" />
+                      <TrendingUp className="h-8 w-8 opacity-20" />
+                      <div className="space-y-1">
+                        <p>No campaign data loaded.</p>
+                        <p className="text-xs">Click refresh to fetch live data from Meta Ads.</p>
                       </div>
-                      <div className="space-y-1 max-w-sm mx-auto">
-                        <p className="text-lg font-semibold text-foreground">No campaign data found</p>
-                        <p className="text-sm">We couldn't find any campaigns matching your criteria. This could be due to your date range, store selection, or missing Meta API tokens.</p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Button variant="outline" onClick={() => window.open('/meta-guide', '_blank')} className="gap-2">
-                          <ExternalLink className="h-4 w-4" />
-                          View Setup Guide
-                        </Button>
-                        <Button onClick={() => fetchData(true)} className="gap-2">
-                          <RefreshCcw className="h-4 w-4" />
-                          Force Refresh
-                        </Button>
-                      </div>
+                      <Button onClick={fetchData} className="gap-2">
+                        <RefreshCcw className="h-4 w-4" />
+                        Load Performance Data
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
