@@ -59,6 +59,9 @@ export function createApp() {
 
   app.use("/api", apiRouter);
 
+  // Direct root check (redundant but safe)
+  app.get("/api/ping", (req, res) => res.json({ status: "pong", vercel: !!process.env.VERCEL }));
+
   // ── Health check ────────────────────────────────────────────────────────────
   apiRouter.get("/health", (req, res) => {
     res.json({
