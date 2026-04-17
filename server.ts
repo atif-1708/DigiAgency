@@ -27,34 +27,45 @@ export function createApp() {
     next();
   });
 
+  // Helper to get Supabase Admin Client lazily
+  let supabaseAdminClient: any = null;
+  const getSupabaseAdmin = () => {
+    if (!supabaseAdminClient) {
+      const url = process.env.VITE_SUPABASE_URL;
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      
+      if (!url || !key) {
+        console.error("[CRITICAL] Missing Supabase environment variables.");
+        // We return a mock client or throw a more descriptive error inside the route
+        return null;
+      }
+      
+      supabaseAdminClient = createClient(url, key, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      });
+    }
+    return supabaseAdminClient;
+  };
+
   const apiRouter = express.Router();
 
-  // Router-level logging middleware
   apiRouter.use((req, res, next) => {
-    console.log(`[apiRouter] Match attempt: ${req.method} ${req.url}`);
+    console.log(`[apiRouter] Request: ${req.method} ${req.url}`);
     next();
   });
 
   app.use("/api", apiRouter);
-
-  // Initialize Supabase Admin Client
-  const supabaseAdmin = createClient(
-    process.env.VITE_SUPABASE_URL || "",
-    process.env.SUPABASE_SERVICE_ROLE_KEY || "",
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  );
 
   // ── Health check ────────────────────────────────────────────────────────────
   apiRouter.get("/health", (req, res) => {
     res.json({
       status: "ok",
       timestamp: new Date().toISOString(),
-      platform: process.env.VERCEL ? "vercel" : "local",
+      platform: process.env.VERCEL ? "vercel" : "run",
+      supabase: !!process.env.VITE_SUPABASE_URL ? 'configured' : 'missing'
     });
   });
 
@@ -143,6 +154,9 @@ export function createApp() {
     const { email, password, fullName, role, agencyId, identifier, storeId } =
       req.body;
     try {
+      const supabaseAdmin = getSupabaseAdmin();
+      if (!supabaseAdmin) throw new Error("Supabase not configured");
+
       const { data: authData, error: authError } =
         await supabaseAdmin.auth.admin.createUser({
           email,
@@ -177,6 +191,8 @@ export function createApp() {
       return res.status(400).json({ error: "Store ID is required" });
     }
     try {
+      const supabaseAdmin = getSupabaseAdmin();
+      if (!supabaseAdmin) throw new Error("Supabase not configured");
       const syncResult = await syncStoreCampaigns(storeId, supabaseAdmin);
       res.json({ success: true, count: syncResult.length });
     } catch (error: any) {
@@ -192,6 +208,8 @@ export function createApp() {
       return res.status(400).json({ error: "Agency ID is required" });
     }
     try {
+      const supabaseAdmin = getSupabaseAdmin();
+      if (!supabaseAdmin) throw new Error("Supabase not configured");
       const { data: stores, error: storesError } = await supabaseAdmin
         .from("stores")
         .select("id")
@@ -265,6 +283,9 @@ export function createApp() {
     );
 
     try {
+      const supabaseAdmin = getSupabaseAdmin();
+      if (!supabaseAdmin) throw new Error("Supabase not configured");
+      
       let storesQuery = supabaseAdmin
         .from("stores")
         .select("*, ad_accounts(*)")
