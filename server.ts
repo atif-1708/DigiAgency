@@ -23,16 +23,6 @@ app.use((req, res, next) => {
   next();
 });
 
-const apiRouter = express.Router();
-
-// Router-level logging middleware
-apiRouter.use((req, res, next) => {
-  console.log(`[apiRouter] Match attempt: ${req.method} ${req.url}`);
-  next();
-});
-
-app.use("/api", apiRouter);
-
 // Initialize Supabase Admin Client
 const supabaseAdmin = createClient(
   process.env.VITE_SUPABASE_URL || "",
@@ -45,13 +35,15 @@ const supabaseAdmin = createClient(
   }
 );
 
+// --- API ROUTES REGISTERED DIRECTLY ON APP ---
+
 // Health check
-apiRouter.get("/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString(), platform: process.env.VERCEL ? 'vercel' : 'run' });
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
 // Debug / Diagnostics
-apiRouter.get("/debug", (req, res) => {
+app.get("/api/debug", (req, res) => {
   res.json({
     env: {
       NODE_ENV: process.env.NODE_ENV,
@@ -65,7 +57,7 @@ apiRouter.get("/debug", (req, res) => {
   });
 });
 
-apiRouter.post("/shopify/test", async (req, res) => {
+app.post("/api/shopify/test", async (req, res) => {
   const { domain, token } = req.body;
   if (!domain || !token) {
     return res.status(400).json({ error: "Domain and Token are required" });
@@ -98,7 +90,7 @@ apiRouter.post("/shopify/test", async (req, res) => {
   }
 });
 
-apiRouter.post("/meta/ad-accounts", async (req, res) => {
+app.post("/api/meta/ad-accounts", async (req, res) => {
   const { accessToken } = req.body;
   if (!accessToken) {
     return res.status(400).json({ error: "Access token is required" });
@@ -123,7 +115,7 @@ apiRouter.post("/meta/ad-accounts", async (req, res) => {
   }
 });
 
-apiRouter.post("/admin/create-user", async (req, res) => {
+app.post("/api/admin/create-user", async (req, res) => {
   const { email, password, fullName, role, agencyId, identifier, storeId } = req.body;
   try {
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -152,7 +144,7 @@ apiRouter.post("/admin/create-user", async (req, res) => {
   }
 });
 
-apiRouter.post("/meta/sync-campaigns", async (req, res) => {
+app.post("/api/meta/sync-campaigns", async (req, res) => {
   const { storeId } = req.body;
 
   if (!storeId) {
@@ -168,7 +160,7 @@ apiRouter.post("/meta/sync-campaigns", async (req, res) => {
   }
 });
 
-apiRouter.post("/meta/sync-agency", async (req, res) => {
+app.post("/api/meta/sync-agency", async (req, res) => {
   const { agencyId } = req.body;
 
   if (!agencyId) {
@@ -204,7 +196,7 @@ apiRouter.post("/meta/sync-agency", async (req, res) => {
 const performanceCache = new Map<string, { data: any, timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-apiRouter.get("/performance", async (req, res) => {
+app.get("/api/performance", async (req, res) => {
   const { agencyId, employeeId, storeId, startDate, endDate, refresh } = req.query;
 
   console.log(`[Performance API] Request: Agency=${agencyId}, Store=${storeId}, Emp=${employeeId}, Start=${startDate}, End=${endDate}, Refresh=${refresh}`);
@@ -627,20 +619,14 @@ async function syncStoreCampaigns(storeId: string) {
   return results;
 }
 
-// Router-level catch-all (nested under /api)
-apiRouter.all("*", (req, res) => {
-  console.warn(`[apiRouter] Route not found inside router: ${req.method} ${req.url}`);
+// Catch-all for API routes
+app.all("/api/*", (req, res) => {
+  console.warn(`[app] API Route Not Found: ${req.method} ${req.url}`);
   res.status(404).json({ 
     success: false, 
-    error: `API route not found inside apiRouter: ${req.method} ${req.url}`,
-    help: "Available routes: /health, /debug, /performance, /shopify/test, /meta/ad-accounts, /admin/create-user, /meta/sync-campaigns, /meta/sync-agency"
+    error: `API route not found: ${req.method} ${req.path}`,
+    help: "Ensure you are using /api/health, /api/performance, etc."
   });
-});
-
-// Catch-all for API routes (if router didn't handle it at root app level)
-app.all("/api/*", (req, res) => {
-  console.warn(`[app] API Route Fallthrough: ${req.method} ${req.url}`);
-  res.status(404).json({ error: `API route not found (app level): ${req.method} ${req.path}` });
 });
 
 // Final Global Error Handler
