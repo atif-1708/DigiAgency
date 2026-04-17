@@ -118,8 +118,10 @@ export default function ShopifyAnalytics() {
       // Process campaigns to calculate CPR correctly using Shopify data
       const processed = (result.data || []).map((camp: any) => ({
         ...camp,
-        cpr: camp.confirmed_orders > 0 ? camp.spend / camp.confirmed_orders : 0,
-        roas: camp.spend > 0 ? camp.revenue / camp.spend : 0
+        // For Shopify Analytics, we prioritize the Shopify Matched counts for CPR/ROAS
+        cpr: camp.shopify_confirmed > 0 ? camp.spend / camp.shopify_confirmed : 0,
+        roas: camp.spend > 0 ? camp.shopify_revenue / camp.spend : 0,
+        meta_cpr: camp.meta_purchases > 0 ? camp.spend / camp.meta_purchases : 0
       }));
 
       setCampaigns(processed);
@@ -155,17 +157,18 @@ export default function ShopifyAnalytics() {
     return [...result].sort((a, b) => {
       if (sortBy === 'cpr-asc') return a.cpr - b.cpr;
       if (sortBy === 'roas-desc') return b.roas - a.roas;
-      if (sortBy === 'orders-desc') return b.confirmed_orders - a.confirmed_orders;
+      if (sortBy === 'orders-desc') return b.shopify_confirmed - a.shopify_confirmed;
       return 0;
     });
   }, [baseFilteredCampaigns, minRoas, selectedCprRange, sortBy]);
 
   const stats = useMemo(() => {
     const totalSpend = baseFilteredCampaigns.reduce((sum, c) => sum + c.spend, 0);
-    const totalRevenue = baseFilteredCampaigns.reduce((sum, c) => sum + (c.revenue || 0), 0);
-    const totalConfirmed = baseFilteredCampaigns.reduce((sum, c) => sum + (c.confirmed_orders || 0), 0);
-    const totalPending = baseFilteredCampaigns.reduce((sum, c) => sum + (c.pending_orders || 0), 0);
-    const totalCancelled = baseFilteredCampaigns.reduce((sum, c) => sum + (c.cancelled_orders || 0), 0);
+    const totalRevenue = baseFilteredCampaigns.reduce((sum, c) => sum + (c.shopify_revenue || 0), 0);
+    const totalConfirmed = baseFilteredCampaigns.reduce((sum, c) => sum + (c.shopify_confirmed || 0), 0);
+    const totalPending = baseFilteredCampaigns.reduce((sum, c) => sum + (c.shopify_pending || 0), 0);
+    const totalCancelled = baseFilteredCampaigns.reduce((sum, c) => sum + (c.shopify_cancelled || 0), 0);
+    const totalMetaPurchases = baseFilteredCampaigns.reduce((sum, c) => sum + (c.meta_purchases || 0), 0);
     
     return {
       totalSpend,
@@ -173,6 +176,7 @@ export default function ShopifyAnalytics() {
       totalConfirmed,
       totalPending,
       totalCancelled,
+      totalMetaPurchases,
       avgRoas: totalSpend > 0 ? totalRevenue / totalSpend : 0,
       avgCpr: totalConfirmed > 0 ? totalSpend / totalConfirmed : 0
     };
@@ -336,7 +340,7 @@ export default function ShopifyAnalytics() {
               <TableRow className="hover:bg-transparent border-muted">
                 <TableHead className="pl-6">Campaign</TableHead>
                 <TableHead className="text-right">Meta Purch.</TableHead>
-                <TableHead className="text-right text-green-600">Shopify Conf.</TableHead>
+                <TableHead className="text-right text-green-600">Shopify Sync</TableHead>
                 <TableHead className="text-right text-amber-600">Pending</TableHead>
                 <TableHead className="text-right text-red-600">Cancelled</TableHead>
                 <TableHead className="text-right">Real CPR</TableHead>
@@ -362,14 +366,26 @@ export default function ShopifyAnalytics() {
                     <TableCell className="pl-6 py-4">
                       <div className="flex flex-col">
                         <span className="font-bold text-sm text-primary">{camp.name}</span>
-                        <span className="text-xs text-muted-foreground">{camp.store_name}</span>
+                        <span className="text-[10px] text-muted-foreground uppercase">{camp.store_name}</span>
                       </div>
                     </TableCell>
-                    <TableCell className="text-right font-medium">{camp.meta_purchases || 0}</TableCell>
-                    <TableCell className="text-right text-green-500 font-bold">{camp.confirmed_orders}</TableCell>
-                    <TableCell className="text-right text-amber-500 font-bold">{camp.pending_orders}</TableCell>
-                    <TableCell className="text-right text-red-500 font-bold">{camp.cancelled_orders}</TableCell>
-                    <TableCell className="text-right font-mono font-bold">Rs {camp.cpr.toFixed(0)}</TableCell>
+                    <TableCell className="text-right font-medium text-muted-foreground">{camp.meta_purchases || 0}</TableCell>
+                    <TableCell className="text-right text-green-600 font-bold">
+                      <div className="flex flex-col items-end">
+                        <span>{camp.shopify_confirmed || 0}</span>
+                        <span className="text-[10px] font-normal text-muted-foreground italic">Confirmed</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right text-amber-500 font-medium">{camp.shopify_pending || 0}</TableCell>
+                    <TableCell className="text-right text-red-500 font-medium">{camp.shopify_cancelled || 0}</TableCell>
+                    <TableCell className="text-right font-mono font-bold">
+                      <div className="flex flex-col items-end">
+                        <span className={cn(camp.cpr > 300 ? "text-red-500" : camp.cpr > 0 ? "text-green-500" : "")}>
+                          Rs {camp.cpr.toFixed(0)}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground font-normal">Meta: Rs {camp.meta_cpr.toFixed(0)}</span>
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right pr-6 font-bold text-primary">
                       {camp.roas.toFixed(2)}x
                     </TableCell>
