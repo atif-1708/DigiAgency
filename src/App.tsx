@@ -11,6 +11,7 @@ import Agencies from '@/pages/Agencies';
 import Login from '@/pages/Login';
 import MetaSetupGuide from '@/pages/MetaSetupGuide';
 import Settings from '@/pages/Settings';
+import ShopifyConnectionDebug from '@/pages/ShopifyConnectionDebug';
 
 import { useAuth } from '@/hooks/useAuth';
 import { Toaster } from '@/components/ui/sonner';
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/shopify-analytics" element={<ShopifyAnalytics />} />
           <Route path="/meta-guide" element={<MetaSetupGuide />} />
+          <Route path="/shopify-debug" element={<ShopifyConnectionDebug />} />
           {isSuperAdmin && <Route path="/agencies" element={<Agencies />} />}
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />

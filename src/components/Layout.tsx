@@ -63,6 +63,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         { icon: TrendingUp, label: 'Performance', href: '/performance' },
         { icon: PieChart, label: 'Analytics', href: '/analytics' },
         { icon: Store, label: 'Shopify Analytics', href: '/shopify-analytics' },
+        { icon: AlertCircle, label: 'Shopify Debug', href: '/shopify-debug' },
         { icon: Facebook, label: 'Meta Setup', href: '/meta-guide' },
       ];
 

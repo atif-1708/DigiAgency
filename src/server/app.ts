@@ -328,6 +328,79 @@ export function createApp() {
     }
   });
 
+  // ── Shopify Connection Verification ──
+  apiRouter.get("/shopify/verify-direct", async (req, res) => {
+    const { agencyId, startDate, endDate } = req.query;
+    if (!agencyId) return res.status(400).json({ error: "Agency ID is required" });
+
+    try {
+      const supabaseAdmin = getSupabaseAdmin();
+      if (!supabaseAdmin) throw new Error("Supabase not configured");
+
+      const { data: stores, error: storesError } = await supabaseAdmin
+        .from("stores")
+        .select("*")
+        .eq("agency_id", agencyId);
+
+      if (storesError) throw storesError;
+
+      const results = [];
+      for (const store of stores || []) {
+        if (!store.shopify_domain || !store.shopify_access_token) {
+          results.push({ storeName: store.name, status: "Missing Credentials" });
+          continue;
+        }
+
+        try {
+          const cleanDomain = store.shopify_domain.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
+          const cleanToken = store.shopify_access_token.trim().replace(/^["']|["']$/g, "");
+          const since = (startDate as string) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+          let shopifyRes;
+          try {
+            shopifyRes = await axios.get(`https://${cleanDomain}/admin/api/2024-01/orders.json`, {
+              headers: { "X-Shopify-Access-Token": cleanToken },
+              params: { status: "any", created_at_min: since, limit: 250 },
+              timeout: 10000
+            });
+          } catch (firstErr: any) {
+            if (!cleanDomain.includes(".myshopify.com")) {
+              const fallback = `${cleanDomain.split(".")[0]}.myshopify.com`;
+              shopifyRes = await axios.get(`https://${fallback}/admin/api/2024-01/orders.json`, {
+                headers: { "X-Shopify-Access-Token": cleanToken },
+                params: { status: "any", created_at_min: since, limit: 250 },
+                timeout: 10000
+              });
+            } else {
+              throw firstErr;
+            }
+          }
+
+          const orders = shopifyRes?.data?.orders || [];
+          const totalSales = orders.reduce((sum: number, o: any) => sum + parseFloat(o.total_price || "0"), 0);
+          
+          results.push({
+            storeName: store.name,
+            status: "Connected",
+            orderCount: orders.length,
+            totalSales: totalSales.toFixed(2),
+            currency: orders[0]?.currency || "USD"
+          });
+        } catch (err: any) {
+          results.push({
+            storeName: store.name,
+            status: "Error",
+            error: err.response?.status === 401 ? "Unauthorized (Invalid Token)" : err.message
+          });
+        }
+      }
+
+      res.json({ success: true, results });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ── Shopify test ──
   apiRouter.post("/shopify/test", async (req, res) => {
     const { domain, token } = req.body;
