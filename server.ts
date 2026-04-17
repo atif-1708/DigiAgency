@@ -24,6 +24,13 @@ app.use((req, res, next) => {
 });
 
 const apiRouter = express.Router();
+
+// Router-level logging middleware
+apiRouter.use((req, res, next) => {
+  console.log(`[apiRouter] Match attempt: ${req.method} ${req.url}`);
+  next();
+});
+
 app.use("/api", apiRouter);
 
 // Initialize Supabase Admin Client
@@ -622,9 +629,20 @@ async function syncStoreCampaigns(storeId: string) {
   return results;
 }
 
-// Catch-all for API routes (if router didn't handle it)
+// Router-level catch-all (nested under /api)
+apiRouter.all("*", (req, res) => {
+  console.warn(`[apiRouter] Route not found inside router: ${req.method} ${req.url}`);
+  res.status(404).json({ 
+    success: false, 
+    error: `API route not found inside apiRouter: ${req.method} ${req.url}`,
+    help: "Available routes: /health, /debug, /performance, /shopify/test, /meta/ad-accounts, /admin/create-user, /meta/sync-campaigns, /meta/sync-agency"
+  });
+});
+
+// Catch-all for API routes (if router didn't handle it at root app level)
 app.all("/api/*", (req, res) => {
-  res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+  console.warn(`[app] API Route Fallthrough: ${req.method} ${req.url}`);
+  res.status(404).json({ error: `API route not found (app level): ${req.method} ${req.path}` });
 });
 
 // Start the server
