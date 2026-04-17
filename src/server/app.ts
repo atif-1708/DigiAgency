@@ -309,6 +309,7 @@ export function createApp() {
 
       const allCampaigns: any[] = [];
       const fetchPromises: Promise<void>[] = [];
+      let totalOrdersFetched = 0;
 
       const since = (startDate as string)?.split('T')[0] || "2023-01-01";
       const until = (endDate as string)?.split('T')[0] || new Date().toISOString().split('T')[0];
@@ -321,13 +322,36 @@ export function createApp() {
           try {
             const cleanDomain = store.shopify_domain.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
             const cleanToken = store.shopify_access_token.trim().replace(/^["']|["']$/g, "");
-            const res = await axios.get(`https://${cleanDomain}/admin/api/2024-01/orders.json`, {
-              headers: { "X-Shopify-Access-Token": cleanToken },
-              params: { status: "any", created_at_min: new Date(since).toISOString(), limit: 250 },
-              timeout: 8000
-            });
-            shopifyOrders = res.data.orders || [];
-          } catch (e) {}
+            
+            const startDateBuffered = new Date(since);
+            startDateBuffered.setDate(startDateBuffered.getDate() - 2); // 2 days buffer for safety
+            const shopifySince = startDateBuffered.toISOString();
+
+            let res;
+            try {
+              res = await axios.get(`https://${cleanDomain}/admin/api/2024-01/orders.json`, {
+                headers: { "X-Shopify-Access-Token": cleanToken },
+                params: { status: "any", created_at_min: shopifySince, limit: 250 },
+                timeout: 10000
+              });
+            } catch (firstErr: any) {
+              if (!cleanDomain.includes(".myshopify.com")) {
+                const fallback = `${cleanDomain.split(".")[0]}.myshopify.com`;
+                res = await axios.get(`https://${fallback}/admin/api/2024-01/orders.json`, {
+                  headers: { "X-Shopify-Access-Token": cleanToken },
+                  params: { status: "any", created_at_min: shopifySince, limit: 250 },
+                  timeout: 10000
+                });
+              } else {
+                throw firstErr;
+              }
+            }
+            shopifyOrders = res?.data?.orders || [];
+            totalOrdersFetched += shopifyOrders.length;
+            console.log(`[Performance API] ${store.name}: Fetched ${shopifyOrders.length} Shopify orders.`);
+          } catch (e: any) {
+            console.error(`[Performance API] Shopify Fetch Error (${store.name}):`, e.message);
+          }
         }
 
         for (const adAccount of store.ad_accounts) {
@@ -354,18 +378,34 @@ export function createApp() {
 
                 if (employeeId && matchedEmployee?.id !== employeeId) continue;
 
-                let shopifyRevenue = 0, shopifyConfirmed = 0;
+                let shopifyRevenue = 0, shopifyConfirmed = 0, shopifyPending = 0, shopifyCancelled = 0;
                 const ident = matchedEmployee?.identifier?.toLowerCase();
+                const campIdStr = String(insight.campaign_id);
+
                 for (const order of shopifyOrders) {
                   const landing = (order.landing_site || "").toLowerCase();
-                  if (
-                    (ident && landing.includes(ident)) ||
-                    landing.includes(insight.campaign_id) ||
-                    landing.includes(campName.toLowerCase().replace(/\s+/g, "_"))
-                  ) {
-                    if (!order.cancelled_at) {
-                      shopifyRevenue += parseFloat(order.total_price || "0");
+                  const referring = (order.referring_site || "").toLowerCase();
+                  const note = (order.note || "").toLowerCase();
+                  const tags = (order.tags || "").toLowerCase();
+                  
+                  // Check various sources for a match
+                  const isIdMatch = landing.includes(campIdStr) || referring.includes(campIdStr) || note.includes(campIdStr) || tags.includes(campIdStr);
+                  const isNameMatch = campName !== "Unknown" && (
+                    landing.includes(campName.toLowerCase().replace(/\s+/g, "_")) || 
+                    landing.includes(campName.toLowerCase().replace(/\s+/g, "-"))
+                  );
+                  const isIdentMatch = ident && (landing.includes(ident) || tags.includes(ident) || note.includes(ident));
+
+                  if (isIdMatch || isNameMatch || isIdentMatch) {
+                    const totalPrice = parseFloat(order.total_price || "0");
+                    if (order.cancelled_at) {
+                      shopifyCancelled++;
+                    } else if (order.fulfillment_status === "fulfilled") {
                       shopifyConfirmed++;
+                      shopifyRevenue += totalPrice;
+                    } else {
+                      shopifyPending++;
+                      shopifyRevenue += totalPrice;
                     }
                   }
                 }
@@ -376,20 +416,27 @@ export function createApp() {
                   insight.actions?.find((a: any) => a.action_type === "purchase")?.value || "0"
                 );
 
+                // Use Shopify data if ANY match was found, otherwise fallback to Meta
+                const hasMatch = (shopifyConfirmed + shopifyPending + shopifyCancelled) > 0;
+
                 allCampaigns.push({
                   id: insight.campaign_id,
                   name: campName,
                   status: camp?.status || "UNKNOWN",
                   start_date: camp?.start_time || since,
                   spend,
-                  revenue: shopifyRevenue > 0 ? shopifyRevenue : metaRevenue,
-                  confirmed_orders: shopifyConfirmed > 0 ? shopifyConfirmed : metaPurchases,
+                  revenue: hasMatch ? shopifyRevenue : metaRevenue,
+                  confirmed_orders: hasMatch ? shopifyConfirmed : metaPurchases,
+                  pending_orders: shopifyPending,
+                  cancelled_orders: shopifyCancelled,
                   meta_revenue: metaRevenue,
                   meta_purchases: metaPurchases,
                   store_name: store.name,
                   buyer_name: matchedEmployee?.full_name || "Unassigned",
                   employee_id: matchedEmployee?.id || null,
                   store_id: store.id,
+                  shopify_orders_count: shopifyConfirmed + shopifyPending,
+                  is_shopify_matched: hasMatch
                 });
               }
             } catch (e) {}
@@ -399,7 +446,11 @@ export function createApp() {
 
       await Promise.all(fetchPromises);
       performanceCache.set(cacheKey, { data: allCampaigns, timestamp: Date.now() });
-      res.json({ success: true, data: allCampaigns });
+      res.json({ 
+        success: true, 
+        data: allCampaigns,
+        _debug: { orders_fetched: totalOrdersFetched, time_range: { since, until } }
+      });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
