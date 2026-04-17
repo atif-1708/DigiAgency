@@ -351,46 +351,69 @@ export function createApp() {
           continue;
         }
 
-        try {
-          const cleanDomain = store.shopify_domain.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
-          const cleanToken = store.shopify_access_token.trim().replace(/^["']|["']$/g, "");
-          const since = (startDate as string) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const cleanDomain = store.shopify_domain.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
+        const cleanToken = store.shopify_access_token.trim().replace(/^["']|["']$/g, "");
+        const maskedToken = cleanToken ? `${cleanToken.substring(0, 6)}...${cleanToken.substring(cleanToken.length - 4)}` : "None";
+        const since = (startDate as string) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-          let shopifyRes;
+        const testConnection = async (domain: string) => {
           try {
-            shopifyRes = await axios.get(`https://${cleanDomain}/admin/api/2024-01/orders.json`, {
-              headers: { "X-Shopify-Access-Token": cleanToken },
-              params: { status: "any", created_at_min: since, limit: 250 },
+            // Test 1: Basic Shop Info (Tests Token Validity)
+            const shopRes = await axios.get(`https://${domain}/admin/api/2024-04/shop.json`, {
+              headers: { "X-Shopify-Access-Token": cleanToken, "Accept": "application/json" },
               timeout: 10000
             });
-          } catch (firstErr: any) {
-            if (!cleanDomain.includes(".myshopify.com")) {
-              const fallback = `${cleanDomain.split(".")[0]}.myshopify.com`;
-              shopifyRes = await axios.get(`https://${fallback}/admin/api/2024-01/orders.json`, {
-                headers: { "X-Shopify-Access-Token": cleanToken },
-                params: { status: "any", created_at_min: since, limit: 250 },
+            
+            // Test 2: Orders (Tests Scopes/Permissions)
+            let orders: any[] = [];
+            let ordersError = null;
+            try {
+              const ordersRes = await axios.get(`https://${domain}/admin/api/2024-04/orders.json`, {
+                headers: { "X-Shopify-Access-Token": cleanToken, "Accept": "application/json" },
+                params: { status: "any", created_at_min: since, limit: 50 },
                 timeout: 10000
               });
-            } else {
-              throw firstErr;
+              orders = ordersRes.data.orders || [];
+            } catch (oe: any) {
+              ordersError = oe.response?.data?.errors || oe.message;
             }
-          }
 
-          const orders = shopifyRes?.data?.orders || [];
-          const totalSales = orders.reduce((sum: number, o: any) => sum + parseFloat(o.total_price || "0"), 0);
-          
+            return { success: true, shop: shopRes.data.shop, orders, ordersError, domainUsed: domain };
+          } catch (err: any) {
+            return { success: false, error: err.response?.data?.errors || err.message, status: err.response?.status, domainUsed: domain };
+          }
+        };
+
+        // Try primary domain, fallback to .myshopify.com if it looks like a custom domain
+        let testResult = await testConnection(cleanDomain);
+        if (!testResult.success && !cleanDomain.includes(".myshopify.com")) {
+          const fallback = `${cleanDomain.split(".")[0]}.myshopify.com`;
+          const fallbackResult = await testConnection(fallback);
+          if (fallbackResult.success) testResult = fallbackResult;
+        }
+
+        if (testResult.success) {
           results.push({
             storeName: store.name,
             status: "Connected",
-            orderCount: orders.length,
-            totalSales: totalSales.toFixed(2),
-            currency: orders[0]?.currency || "USD"
+            shopConnectivity: "Success",
+            ordersConnectivity: testResult.ordersError ? `Failed: ${testResult.ordersError}` : "Success",
+            orderCount: testResult.orders?.length || 0,
+            totalSales: testResult.orders?.reduce((sum: number, o: any) => sum + parseFloat(o.total_price || "0"), 0).toFixed(2),
+            currency: testResult.shop?.currency || "USD",
+            maskedToken,
+            domainUsed: testResult.domainUsed,
+            isScopeIssue: !!testResult.ordersError
           });
-        } catch (err: any) {
+        } else {
           results.push({
             storeName: store.name,
             status: "Error",
-            error: err.response?.status === 401 ? "Unauthorized (Invalid Token)" : err.message
+            statusLine: testResult.status ? `HTTP ${testResult.status}` : "Network Error",
+            error: testResult.error,
+            maskedToken,
+            hint: testResult.status === 401 ? "Unauthorized. Token is invalid or App is not installed." : "Check domain or permissions.",
+            domainUsed: testResult.domainUsed
           });
         }
       }

@@ -56,67 +56,87 @@ export default function ShopifyConnectionDebug() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Store Name</TableHead>
-                  <TableHead>Connection Status</TableHead>
-                  <TableHead className="text-right">Orders Found</TableHead>
-                  <TableHead className="text-right">Total Sales (Raw)</TableHead>
-                  <TableHead>Issues / Info</TableHead>
+                  <TableHead>Shop API</TableHead>
+                  <TableHead>Orders API</TableHead>
+                  <TableHead>Masked Token</TableHead>
+                  <TableHead className="text-right">Orders (30d)</TableHead>
+                  <TableHead className="text-right">Sales (Raw)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {results.map((res, i) => (
                   <TableRow key={i}>
-                    <TableCell className="font-medium">{res.storeName}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex flex-col">
+                        <span>{res.storeName}</span>
+                        <span className="text-[10px] text-muted-foreground font-mono">{res.domainUsed}</span>
+                      </div>
+                    </TableCell>
                     <TableCell>
-                      {res.status === 'Connected' ? (
-                        <div className="flex items-center gap-2 text-green-500">
-                          <CheckCircle2 className="h-4 w-4" />
-                          <span>Active</span>
-                        </div>
-                      ) : res.status === 'Error' ? (
-                        <div className="flex items-center gap-2 text-red-500">
-                          <AlertCircle className="h-4 w-4" />
-                          <span>Failed</span>
-                        </div>
+                      {res.shopConnectivity === 'Success' ? (
+                        <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50 gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Authorized
+                        </Badge>
                       ) : (
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <AlertCircle className="h-4 w-4" />
-                          <span>{res.status}</span>
-                        </div>
+                        <Badge variant="destructive">Failed</Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-blue-500">
-                      {res.orderCount !== undefined ? (
-                        <div className="flex items-center justify-end gap-1">
-                          <ShoppingBag className="h-3 w-3" />
-                          {res.orderCount}
-                        </div>
-                      ) : '-'}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-green-600">
-                      {res.totalSales !== undefined ? `${res.totalSales} ${res.currency}` : '-'}
+                    <TableCell>
+                      {res.ordersConnectivity === 'Success' ? (
+                        <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50 gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Permitted
+                        </Badge>
+                      ) : res.status === 'Connected' ? (
+                        <Badge variant="destructive" className="bg-amber-500 border-amber-500">No Permission</Badge>
+                      ) : (
+                        <Badge variant="secondary">-</Badge>
+                      )}
                     </TableCell>
                     <TableCell>
-                      {res.error ? (
-                        <Badge variant="destructive" className="font-normal">
-                          {res.error}
-                        </Badge>
-                      ) : res.orderCount === 0 && res.status === 'Connected' ? (
-                        <span className="text-xs text-amber-600 italic">API Connected but zero orders found in last 30 days. Check date range or Shopify status.</span>
-                      ) : res.status === 'Connected' ? (
-                        <span className="text-xs text-green-600 italic">Connection is perfect. If dashboard is 0, it means UTM/Campaign matching is failing.</span>
-                      ) : '-'}
+                      <code className="text-[10px] bg-muted p-1 rounded font-mono">
+                        {res.maskedToken}
+                      </code>
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-blue-500">
+                      {res.orderCount !== undefined ? res.orderCount : '-'}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-green-600">
+                      {res.totalSales !== undefined ? `${res.totalSales} ${res.currency || ''}` : '-'}
                     </TableCell>
                   </TableRow>
                 ))}
                 {results.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                       No stores found for this agency.
                     </TableCell>
                   </TableRow>
                 )}
               </TableBody>
             </Table>
+
+            <div className="mt-6 space-y-4">
+              {results.some(r => r.error || r.isScopeIssue || r.ordersConnectivity?.includes('Failed')) && (
+                <div className="p-4 bg-red-50 border border-red-100 rounded-lg text-red-900 text-sm">
+                  <h5 className="font-bold flex items-center gap-2 mb-1">
+                    <AlertCircle className="h-4 w-4" />
+                    Detected Errors:
+                  </h5>
+                  <ul className="list-disc list-inside space-y-1">
+                    {results.map((res, i) => (
+                      (res.error || res.isScopeIssue) ? (
+                        <li key={i}>
+                          <strong>{res.storeName}</strong>: {typeof res.error === 'string' ? res.error : JSON.stringify(res.error)} 
+                          {res.ordersConnectivity?.includes('Failed') && ` (Scope Error: ${res.ordersConnectivity})`}
+                        </li>
+                      ) : null
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -126,10 +146,10 @@ export default function ShopifyConnectionDebug() {
             How to read this diagnostic:
           </h4>
           <ul className="list-disc list-inside space-y-2 text-sm">
-            <li><strong>Status Connected + Orders &gt; 0:</strong> Connection is perfect. Any zeros in the main dashboard mean your Meta campaigns don't have the correct UTMs or IDs to match these Shopify orders.</li>
-            <li><strong>Status Connected + Orders = 0:</strong> API is working, but Shopify is returning zero orders. Check if the store actually has orders in the last 30 days.</li>
-            <li><strong>Error 401:</strong> Your Shopify Access Token is wrong. You must use the <strong>Admin API Access Token</strong> (starts with <code>shpat_</code>).</li>
-            <li><strong>Error Domain/Network:</strong> Shopify domain is wrong or the store is inaccessible.</li>
+            <li><strong>Authorized (Success):</strong> Token is valid and API can talk to your store.</li>
+            <li><strong>Permitted (Success):</strong> You have correctly added the <code>read_orders</code> scope.</li>
+            <li><strong>No Permission:</strong> Token is valid, but you forgot to check the <code>read_orders</code> permission in Shopify.</li>
+            <li><strong>HTTP 401:</strong> Token is completely invalid. Check <code>shpat_</code> prefix.</li>
           </ul>
         </section>
       </div>
