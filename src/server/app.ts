@@ -243,6 +243,91 @@ export function createApp() {
     });
   });
 
+  // ── Debug / Diagnostics ──
+  apiRouter.get("/debug", (req, res) => {
+    res.json({
+      env: {
+        NODE_ENV: process.env.NODE_ENV,
+        VERCEL: process.env.VERCEL,
+        HAS_SUPABASE_URL: !!process.env.VITE_SUPABASE_URL,
+        HAS_SUPABASE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      },
+      headers: req.headers,
+      url: req.url,
+      originalUrl: req.originalUrl,
+    });
+  });
+
+  // ── Admin: Create User ──────────────────────────────────────────────────────
+  apiRouter.post("/admin/create-user", async (req, res) => {
+    const { email, password, fullName, role, agencyId, identifier, storeId } = req.body;
+    try {
+      const supabaseAdmin = getSupabaseAdmin();
+      if (!supabaseAdmin) throw new Error("Supabase not configured");
+
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: fullName },
+      });
+      if (authError) throw authError;
+
+      const { error: profileError } = await supabaseAdmin
+        .from("profiles")
+        .update({ role, agency_id: agencyId, identifier, store_id: storeId })
+        .eq("id", authData.user.id);
+
+      if (profileError) throw profileError;
+      res.json({ success: true, user: authData.user });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ── Meta: Sync Campaigns (single store) ────────────────────────────────────
+  apiRouter.post("/meta/sync-campaigns", async (req, res) => {
+    const { storeId } = req.body;
+    if (!storeId) return res.status(400).json({ error: "Store ID is required" });
+    try {
+      const supabaseAdmin = getSupabaseAdmin();
+      if (!supabaseAdmin) throw new Error("Supabase not configured");
+      const syncResult = await syncStoreCampaigns(storeId, supabaseAdmin);
+      res.json({ success: true, count: syncResult.length });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ── Meta: Sync Agency (all stores) ─────────────────────────────────────────
+  apiRouter.post("/meta/sync-agency", async (req, res) => {
+    const { agencyId } = req.body;
+    if (!agencyId) return res.status(400).json({ error: "Agency ID is required" });
+    try {
+      const supabaseAdmin = getSupabaseAdmin();
+      if (!supabaseAdmin) throw new Error("Supabase not configured");
+      const { data: stores, error: storesError } = await supabaseAdmin
+        .from("stores")
+        .select("id")
+        .eq("agency_id", agencyId);
+
+      if (storesError) throw storesError;
+
+      const results = [];
+      for (const store of stores || []) {
+        try {
+          const storeResult = await syncStoreCampaigns(store.id, supabaseAdmin);
+          results.push({ storeId: store.id, success: true, count: storeResult.length });
+        } catch (err: any) {
+          results.push({ storeId: store.id, success: false, error: err.message });
+        }
+      }
+      res.json({ success: true, results });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ── Shopify test ──
   apiRouter.post("/shopify/test", async (req, res) => {
     const { domain, token } = req.body;
@@ -310,6 +395,7 @@ export function createApp() {
       const allCampaigns: any[] = [];
       const fetchPromises: Promise<void>[] = [];
       let totalOrdersFetched = 0;
+      const storeErrors: any[] = [];
 
       const since = (startDate as string)?.split('T')[0] || "2023-01-01";
       const until = (endDate as string)?.split('T')[0] || new Date().toISOString().split('T')[0];
@@ -348,9 +434,13 @@ export function createApp() {
             }
             shopifyOrders = res?.data?.orders || [];
             totalOrdersFetched += shopifyOrders.length;
-            console.log(`[Performance API] ${store.name}: Fetched ${shopifyOrders.length} Shopify orders.`);
           } catch (e: any) {
-            console.error(`[Performance API] Shopify Fetch Error (${store.name}):`, e.message);
+            const status = e.response?.status;
+            let msg = e.message;
+            if (status === 401) {
+              msg = "Invalid Shopify Access Token (401). Please ensure you are using the 'Admin API access token' (shpat_...) and NOT the API key/secret.";
+            }
+            storeErrors.push({ store: store.name, error: msg, status });
           }
         }
 
@@ -449,7 +539,11 @@ export function createApp() {
       res.json({ 
         success: true, 
         data: allCampaigns,
-        _debug: { orders_fetched: totalOrdersFetched, time_range: { since, until } }
+        _debug: { 
+          orders_fetched: totalOrdersFetched, 
+          time_range: { since, until },
+          store_errors: storeErrors
+        }
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
