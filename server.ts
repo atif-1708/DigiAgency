@@ -224,8 +224,6 @@ apiRouter.get("/performance", async (req, res) => {
     return res.json({ success: true, data: cachedData.data, fromCache: true });
   }
 
-  // ... (Rest of performance API logic - I'll keep it integrated)
-
   // Meta expects YYYY-MM-DD. If we get ISO strings, we extract the date part.
   // If we get YYYY-MM-DD directly, we use it.
   const formatMetaDate = (dateStr: any) => {
@@ -645,42 +643,70 @@ app.all("/api/*", (req, res) => {
   res.status(404).json({ error: `API route not found (app level): ${req.method} ${req.path}` });
 });
 
+// Final Global Error Handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("[CRITICAL ERROR]", err);
+  
+  // Ensure we always return JSON for API routes
+  if (req.url.startsWith('/api/')) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || "Internal Server Error",
+      type: "GlobalServerError"
+    });
+  }
+  
+  // For non-API routes, if we can't send index.html, we send a simple text error
+  res.status(500).send("Internal Server Error. Please check logs.");
+});
+
 // Start the server
 async function startServer() {
-  const isProd = process.env.NODE_ENV === "production" || process.env.VITE_PROD === "true";
+  const isProd = process.env.NODE_ENV === "production" || process.env.VITE_PROD === "true" || !!process.env.VERCEL;
   
+  console.log(`[Server] Starting in ${isProd ? 'Production' : 'Development'} mode...`);
+
   if (isProd) {
     const distPath = path.join(process.cwd(), "dist");
-    console.log(`[Server] Production Mode: Serving static files from ${distPath}`);
-    app.use(express.static(distPath, { index: false })); // Don't auto-serve index.html for everything
+    console.log(`[Server] Serving static files from: ${distPath}`);
+    app.use(express.static(distPath, { index: false }));
     
     // SPA fallback
     app.get("*", (req, res) => {
       // Very defensive check for API routes
       if (req.url.startsWith('/api/') || req.path.startsWith('/api/')) {
-        console.warn(`[Server] API Route Fallthrough Detected: ${req.method} ${req.url}`);
+        console.warn(`[Server] API Route Fallthrough to SPA: ${req.method} ${req.url}`);
         return res.status(404).json({ 
           success: false, 
-          error: `API route not found on server: ${req.method} ${req.url}` 
+          error: `API route not found: ${req.method} ${req.url}` 
         });
       }
       
-      console.log(`[Server] Serving SPA fallback for: ${req.url}`);
-      res.sendFile(path.join(distPath, "index.html"));
+      const indexPath = path.join(distPath, "index.html");
+      res.sendFile(indexPath, (err) => {
+        if (err) {
+          console.error(`[Server] Failed to send index.html: ${err.message}`);
+          res.status(500).send("Application index file missing. Please build the app.");
+        }
+      });
     });
   } else {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+      console.log("[Server] Vite middleware integrated.");
+    } catch (err: any) {
+      console.error("[Server] Failed to create Vite server:", err);
+    }
   }
 
-const PORT = process.env.PORT || 3000;
+  const PORT = process.env.PORT || 3000;
   app.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`[Server] listening on 0.0.0.0:${PORT}`);
-    console.log(`[Server] Mode: ${isProd ? 'Production' : 'Development'}`);
-    console.log(`[Server] API Router mounted at /api`);
+    console.log(`[Server] Supabase URL: ${process.env.VITE_SUPABASE_URL ? 'OK' : 'MISSING'}`);
   });
 }
 
