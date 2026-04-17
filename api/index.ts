@@ -1,21 +1,8 @@
-import { createApp } from "../server";
+import { createApp } from "../src/server/app.js";
 
-// Create the Express app instance (API routes only)
+// Initialize the Express app factory (API routes only)
 const app = createApp();
 
-// Vercel serverless handler with basic error catching
-// We export a handler function to ensure we can log or catch boot errors if they happen.
-export default async function handler(req: any, res: any) {
-  try {
-    // Standard Express apps can be passed directly as handlers in Vercel's Node runtime
-    return app(req, res);
-  } catch (error: any) {
-    console.error("Vercel Function Error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Function Invocation Error",
-      message: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-}
+// Export as a Vercel serverless function
+// Vercel bridges Express's (req, res) signature automatically.
+export default app;
