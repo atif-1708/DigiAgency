@@ -358,7 +358,11 @@ export function createApp() {
                 const ident = matchedEmployee?.identifier?.toLowerCase();
                 for (const order of shopifyOrders) {
                   const landing = (order.landing_site || "").toLowerCase();
-                  if ((ident && landing.includes(ident)) || landing.includes(insight.campaign_id)) {
+                  if (
+                    (ident && landing.includes(ident)) ||
+                    landing.includes(insight.campaign_id) ||
+                    landing.includes(campName.toLowerCase().replace(/\s+/g, "_"))
+                  ) {
                     if (!order.cancelled_at) {
                       shopifyRevenue += parseFloat(order.total_price || "0");
                       shopifyConfirmed++;
@@ -366,10 +370,26 @@ export function createApp() {
                   }
                 }
 
+                const metaRoas = parseFloat(insight.purchase_roas?.[0]?.value || "0");
+                const metaRevenue = spend * metaRoas;
+                const metaPurchases = parseInt(
+                  insight.actions?.find((a: any) => a.action_type === "purchase")?.value || "0"
+                );
+
                 allCampaigns.push({
-                  id: insight.campaign_id, name: campName, spend,
-                  revenue: shopifyRevenue || (spend * parseFloat(insight.purchase_roas?.[0]?.value || "0")),
-                  store_name: store.name, buyer_name: matchedEmployee?.full_name || "Unassigned"
+                  id: insight.campaign_id,
+                  name: campName,
+                  status: camp?.status || "UNKNOWN",
+                  start_date: camp?.start_time || since,
+                  spend,
+                  revenue: shopifyRevenue > 0 ? shopifyRevenue : metaRevenue,
+                  confirmed_orders: shopifyConfirmed > 0 ? shopifyConfirmed : metaPurchases,
+                  meta_revenue: metaRevenue,
+                  meta_purchases: metaPurchases,
+                  store_name: store.name,
+                  buyer_name: matchedEmployee?.full_name || "Unassigned",
+                  employee_id: matchedEmployee?.id || null,
+                  store_id: store.id,
                 });
               }
             } catch (e) {}
