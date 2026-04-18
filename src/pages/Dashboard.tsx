@@ -408,7 +408,7 @@ export default function Dashboard() {
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3">
         <StatCard 
           title="Confirmed" 
           value={stats.confirmedOrders} 
@@ -425,7 +425,6 @@ export default function Dashboard() {
         />
         <StatCard title="Pending" value={stats.pendingOrders} icon={Clock} change={2} trend="up" />
         <StatCard title="Cancelled" value={stats.cancelledOrders} icon={XCircle} change={1} trend="down" />
-        <StatCard title="Total Campaigns" value={stats.confirmedOrders + stats.pendingOrders} icon={Target} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-7">

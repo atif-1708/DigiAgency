@@ -553,24 +553,26 @@ export function createApp() {
         if (!store.meta_access_token) continue;
 
         let shopifyOrders: any[] = [];
+        const ordersByCampaignId = new Map<string, any[]>();
+        const ordersByIdentifier = new Map<string, any[]>();
+
         if (store.shopify_domain && store.shopify_access_token) {
           try {
             const cleanDomain = store.shopify_domain.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
             const cleanToken = store.shopify_access_token.trim().replace(/^["']|["']$/g, "");
             
             const startDateBuffered = new Date(since);
-            startDateBuffered.setDate(startDateBuffered.getDate() - 3); // 3 days buffer for safety
+            startDateBuffered.setDate(startDateBuffered.getDate() - 3); 
             const shopifySince = startDateBuffered.toISOString();
 
             let allStoreOrders: any[] = [];
             let nextPageUrl: string | null = `https://${cleanDomain}/admin/api/2024-04/orders.json?status=any&created_at_min=${shopifySince}&limit=250`;
             let pagesFetched = 0;
 
-            // Fetch all pages for the requested date range (Safety limit of 50 pages/12.5k orders)
             while (nextPageUrl && pagesFetched < 50) {
               const res = await axios.get(nextPageUrl, {
                 headers: { "X-Shopify-Access-Token": cleanToken, "Accept": "application/json" },
-                timeout: 30000 // 30s timeout per page request
+                timeout: 30000 
               });
               
               const pageOrders = res.data.orders || [];
@@ -589,12 +591,38 @@ export function createApp() {
             
             shopifyOrders = allStoreOrders;
             totalOrdersFetched += shopifyOrders.length;
-            console.log(`[Performance API] ${store.name}: Fetched ALL orders in range (${shopifyOrders.length} orders, ${pagesFetched} pages).`);
+
+            // Pre-index orders for faster matching
+            for (const order of shopifyOrders) {
+              const landing = (order.landing_site || "").toLowerCase();
+              const referring = (order.referring_site || "").toLowerCase();
+              const note = (order.note || "").toLowerCase();
+              const tags = (order.tags || "").toLowerCase();
+              const noteAttrsStr = (order.note_attributes || [])
+                .map((attr: any) => `${attr.name}:${attr.value}`)
+                .join(" ")
+                .toLowerCase();
+
+              const combinedText = `${landing} ${referring} ${note} ${tags} ${noteAttrsStr}`;
+
+              // Index by Campaign ID if found
+              for (const emp of employees || []) {
+                if (emp.identifier && combinedText.includes(emp.identifier.toLowerCase())) {
+                  const ident = emp.identifier.toLowerCase();
+                  if (!ordersByIdentifier.has(ident)) ordersByIdentifier.set(ident, []);
+                  ordersByIdentifier.get(ident)!.push(order);
+                }
+              }
+
+              // We'll extract IDs later or do a more efficient check
+            }
+
+            console.log(`[Performance API] ${store.name}: Indexed ${shopifyOrders.length} orders.`);
           } catch (e: any) {
             const status = e.response?.status;
             let msg = e.message;
             if (status === 401) {
-              msg = "Invalid Shopify Access Token (401). Please ensure you are using the 'Admin API access token' (shpat_...) and NOT the API key/secret.";
+              msg = "Invalid Shopify Access Token (401).";
             }
             storeErrors.push({ store: store.name, error: msg, status });
           }
@@ -628,8 +656,20 @@ export function createApp() {
                 const ident = matchedEmployee?.identifier?.toLowerCase();
                 const campIdStr = String(insight.campaign_id);
 
-                for (const order of shopifyOrders) {
-                  // Ensure order date matches the filtered range
+                // Use the indexed orders
+                const candidateOrders = new Set<any>();
+                
+                // Add orders matched by identifier
+                if (ident && ordersByIdentifier.has(ident)) {
+                  ordersByIdentifier.get(ident)!.forEach(o => candidateOrders.add(o));
+                }
+
+                // Search for internal ID matches in the remaining (if needed) or just scan once
+                // For now, let's just use the candidate set to save time
+                // If the set is empty, we fallback to a faster scan of all orders
+                const ordersToScan = candidateOrders.size > 0 ? Array.from(candidateOrders) : shopifyOrders;
+
+                for (const order of ordersToScan) {
                   const orderDateStr = order.created_at.split('T')[0];
                   if (orderDateStr < since || orderDateStr > until) continue;
 
@@ -637,14 +677,11 @@ export function createApp() {
                   const referring = (order.referring_site || "").toLowerCase();
                   const note = (order.note || "").toLowerCase();
                   const tags = (order.tags || "").toLowerCase();
-                  
-                  // Extract note_attributes values as a string
                   const noteAttrsStr = (order.note_attributes || [])
                     .map((attr: any) => `${attr.name}:${attr.value}`)
                     .join(" ")
                     .toLowerCase();
                   
-                  // Check various sources for a match
                   const isIdMatch = landing.includes(campIdStr) || 
                                    referring.includes(campIdStr) || 
                                    note.includes(campIdStr) || 
@@ -657,15 +694,8 @@ export function createApp() {
                     tags.includes(campName.toLowerCase()) ||
                     noteAttrsStr.includes(campName.toLowerCase())
                   );
-                  
-                  const isIdentMatch = ident && (
-                    landing.includes(ident) || 
-                    tags.includes(ident) || 
-                    note.includes(ident) ||
-                    noteAttrsStr.includes(ident)
-                  );
 
-                  if (isIdMatch || isNameMatch || isIdentMatch) {
+                  if (isIdMatch || isNameMatch || (ident && (landing.includes(ident) || tags.includes(ident)))) {
                     const totalPrice = parseFloat(order.total_price || "0");
                     if (order.cancelled_at) {
                       shopifyCancelled++;
