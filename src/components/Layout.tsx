@@ -62,25 +62,22 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         { icon: Users, label: 'Employees', href: '/employees' },
         { icon: TrendingUp, label: 'Performance', href: '/performance' },
         { icon: PieChart, label: 'Analytics', href: '/analytics' },
-        { icon: Store, label: 'Shopify Analytics', href: '/shopify-analytics' },
-        { icon: AlertCircle, label: 'Shopify Debug', href: '/shopify-debug' },
-        { icon: Facebook, label: 'Meta Setup', href: '/meta-guide' },
       ];
 
   return (
     <div className="flex min-h-screen bg-background">
       {/* Desktop Sidebar */}
-      <aside className="hidden w-64 border-r bg-card md:flex md:flex-col">
-        <div className="flex h-16 items-center border-bottom px-6">
-          <Link to="/" className="flex items-center gap-2 font-bold text-xl tracking-tight">
-            <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">
-              <TrendingUp className="h-5 w-5" />
+      <aside className="hidden w-72 border-r bg-card md:flex md:flex-col shadow-sm">
+        <div className="flex h-20 items-center px-8 border-b">
+          <Link to="/" className="flex items-center gap-3 font-bold text-2xl tracking-tight text-primary">
+            <div className="h-10 w-10 rounded-2xl bg-primary flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
+              <TrendingUp className="h-6 w-6" />
             </div>
             <span>AdIntel</span>
           </Link>
         </div>
         
-        <nav className="flex-1 space-y-1 p-4">
+        <nav className="flex-1 space-y-2 p-6">
           {menuItems.map((item) => (
             <SidebarItem
               key={item.href}

@@ -39,25 +39,30 @@ import { useAuth } from '@/hooks/useAuth';
 import { formatLocalYYYYMMDD } from '@/lib/date-utils';
 
 const StatCard = ({ title, value, change, trend, icon: Icon, suffix = "", description }: any) => (
-  <Card className="overflow-hidden border-none shadow-sm bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-all duration-300">
-    <CardContent className="p-6">
+  <Card className="overflow-hidden border-none shadow-md bg-card hover:shadow-xl hover:scale-[1.02] transition-all duration-300 rounded-3xl group">
+    <CardContent className="p-8">
       <div className="flex items-center justify-between">
-        <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
-          <Icon className="h-6 w-6" />
+        <div className="h-14 w-14 rounded-2xl bg-primary/5 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors duration-500">
+          <Icon className="h-7 w-7" />
         </div>
         {change !== undefined && (
-          <Badge variant={trend === 'up' ? 'default' : 'destructive'} className="rounded-full px-2 py-0.5 text-[10px] font-bold">
-            {trend === 'up' ? <ArrowUpRight className="h-3 w-3 mr-1" /> : <ArrowDownRight className="h-3 w-3 mr-1" />}
+          <Badge variant={trend === 'up' ? 'default' : 'destructive'} className="rounded-full px-3 py-1 text-[11px] font-bold tracking-wider">
+            {trend === 'up' ? <ArrowUpRight className="h-3.5 w-3.5 mr-1" /> : <ArrowDownRight className="h-3.5 w-3.5 mr-1" />}
             {change}%
           </Badge>
         )}
       </div>
-      <div className="mt-4">
-        <p className="text-sm font-medium text-muted-foreground">{title}</p>
-        <h3 className="text-2xl font-bold mt-1">
+      <div className="mt-6">
+        <p className="text-sm font-semibold text-muted-foreground uppercase tracking-widest">{title}</p>
+        <h3 className="text-3xl font-extrabold mt-2 tracking-tight">
           {suffix}{typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 0 }) : value}
         </h3>
-        {description && <p className="text-[10px] mt-1 text-muted-foreground font-medium">{description}</p>}
+        {description && (
+          <div className="mt-3 flex items-center gap-2">
+            <div className="h-1 w-1 rounded-full bg-primary/30" />
+            <p className="text-xs text-muted-foreground font-semibold tracking-wide uppercase opacity-80">{description}</p>
+          </div>
+        )}
       </div>
     </CardContent>
   </Card>
@@ -235,9 +240,15 @@ export default function Dashboard() {
 
   if (loading && !hasData) {
     return (
-      <div className="flex flex-col h-[400px] items-center justify-center gap-4">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground animate-pulse">Fetching live intelligence from Meta Ads...</p>
+      <div className="flex flex-col h-[600px] items-center justify-center gap-6">
+        <div className="relative">
+          <div className="h-20 w-20 rounded-full border-4 border-primary/10 border-t-primary animate-spin" />
+          <TrendingUp className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-8 w-8 text-primary" />
+        </div>
+        <div className="text-center space-y-2">
+          <h2 className="text-xl font-bold tracking-tight">Syncing Intelligence</h2>
+          <p className="text-sm text-muted-foreground animate-pulse max-w-xs mx-auto">Connecting to Meta Ads and Shopify to fetch real-time performance data...</p>
+        </div>
       </div>
     );
   }
@@ -285,44 +296,43 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-8">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex flex-col gap-2">
-            <h1 className="text-3xl font-bold tracking-tight">Agency Overview</h1>
-            <p className="text-muted-foreground">Real-time performance intelligence across all stores.</p>
+    <div className="py-8 space-y-12">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 px-2">
+          <div className="space-y-2">
+            <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl text-primary">Agency Core</h1>
+            <p className="text-lg text-muted-foreground font-medium">Real-time performance intelligence across your enterprise.</p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 bg-muted/30 p-2 rounded-[2rem] backdrop-blur-sm border border-border/50">
             <Select value={dateRange} onValueChange={setDateRange}>
-              <SelectTrigger className="w-[180px] rounded-xl bg-card/50 backdrop-blur-sm border-none shadow-sm">
+              <SelectTrigger className="w-[200px] h-12 rounded-2xl bg-background border-none shadow-sm font-semibold px-6 focus:ring-primary/20">
                 <SelectValue placeholder="Time Range" />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="today">Today</SelectItem>
+              <SelectContent className="rounded-2xl border-none shadow-2xl">
+                <SelectItem value="today">Today (Live)</SelectItem>
                 <SelectItem value="yesterday">Yesterday</SelectItem>
                 <SelectItem value="last-7-days">Last 7 Days</SelectItem>
                 <SelectItem value="last-30-days">Last 30 Days</SelectItem>
                 <SelectItem value="last-60-days">Last 60 Days</SelectItem>
               </SelectContent>
             </Select>
-            <Button onClick={() => fetchStats(true)} disabled={loading} className="gap-2">
-              <RefreshCcw className={cn("h-4 w-4", loading && "animate-spin")} />
-              Refresh
+            <Button onClick={() => fetchStats(true)} disabled={loading} size="icon" className={cn("h-12 w-12 rounded-2xl shadow-lg shadow-primary/10 transition-all", loading && "bg-muted text-muted-foreground")}>
+              <RefreshCcw className={cn("h-5 w-5", loading && "animate-spin")} />
             </Button>
           </div>
         </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-3 lg:grid-cols-5">
         <StatCard title="Total Spend" value={stats.totalSpend} icon={DollarSign} suffix="Rs " change={12} trend="up" />
-        <StatCard title="Meta ROAS" value={stats.avgRoas} icon={Zap} suffix="" change={8} trend="up" />
+        <StatCard title="Meta Revenue" value={stats.totalRevenue} icon={ShoppingCart} suffix="Rs " change={8} trend="up" />
+        <StatCard title="Meta ROAS" value={stats.avgRoas} icon={Zap} change={10} trend="up" />
         <StatCard title="Meta Orders" value={stats.totalOrders} icon={Users} change={15} trend="up" description={`CPR: Rs ${stats.avgCpr.toFixed(0)}`} />
         <StatCard title="Shopify Matched" value={stats.shopifyOrders} icon={Package} change={10} trend="up" description={`CPR: Rs ${stats.shopifyCpr.toFixed(0)}`} />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-3">
         <StatCard title="Confirmed" value={stats.confirmedOrders} icon={CheckCircle2} change={5} trend="up" description={`CPR: Rs ${stats.confirmedCpr.toFixed(0)} | ${stats.confirmationRate.toFixed(1)}%`} />
         <StatCard title="Pending" value={stats.pendingOrders} icon={Clock} change={2} trend="up" />
         <StatCard title="Cancelled" value={stats.cancelledOrders} icon={XCircle} change={1} trend="down" />
-        <StatCard title="Total Campaigns" value={stats.totalSpend > 0 ? chartData.length : 0} icon={Target} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-7">
