@@ -3,8 +3,6 @@ import { cn } from '@/lib/utils';
 import { 
   BarChart3, 
   PieChart, 
-  TrendingUp, 
-  Users, 
   Filter, 
   RefreshCcw,
   Loader2,
@@ -12,7 +10,14 @@ import {
   ArrowDownRight,
   Award,
   Target,
-  Zap
+  Zap,
+  DollarSign,
+  ShoppingCart,
+  Users,
+  Package,
+  CheckCircle2,
+  Clock,
+  XCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -49,6 +54,7 @@ const CPR_RANGES = [
 
 export default function Analytics() {
   const { profile } = useAuth();
+  const [activeTab, setActiveTab] = useState('all-campaigns');
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,6 +63,7 @@ export default function Analytics() {
   const [minRoas, setMinRoas] = useState(0);
   const [selectedCprRange, setSelectedCprRange] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState('cpr-asc');
+  const [currentRange, setCurrentRange] = useState({ start: new Date(), end: new Date() });
 
   useEffect(() => {
     if (profile?.agency_id) {
@@ -98,7 +105,8 @@ export default function Analytics() {
       } else if (dateRange === 'last-60-days') {
         start.setDate(start.getDate() - 60);
       }
-
+      
+      setCurrentRange({ start, end });
       params.append('startDate', formatLocalYYYYMMDD(start));
       params.append('endDate', formatLocalYYYYMMDD(end));
 
@@ -138,10 +146,22 @@ export default function Analytics() {
   }
 
   const baseFilteredCampaigns = useMemo(() => {
-    return campaigns.filter(camp => {
+    let base = campaigns.filter(camp => {
       return selectedEmployee === 'all-employees' || camp.employee_id === selectedEmployee;
     });
-  }, [campaigns, selectedEmployee]);
+
+    if (activeTab === 'new-campaigns') {
+      const startStr = formatLocalYYYYMMDD(currentRange.start);
+      const endStr = formatLocalYYYYMMDD(currentRange.end);
+      
+      base = base.filter(camp => {
+        const campStart = camp.start_date?.split('T')[0];
+        return campStart >= startStr && campStart <= endStr;
+      });
+    }
+
+    return base;
+  }, [campaigns, selectedEmployee, activeTab, currentRange]);
 
   const filteredCampaigns = useMemo(() => {
     let result = baseFilteredCampaigns.filter(camp => {
@@ -184,13 +204,26 @@ export default function Analytics() {
 
   const stats = useMemo(() => {
     const totalSpend = baseFilteredCampaigns.reduce((sum, c) => sum + c.spend, 0);
-    const totalRevenue = baseFilteredCampaigns.reduce((sum, c) => sum + (c.revenue || 0), 0);
-    const totalOrders = baseFilteredCampaigns.reduce((sum, c) => sum + (c.confirmed_orders || 0), 0);
+    const totalMetaRevenue = baseFilteredCampaigns.reduce((sum, c) => sum + (c.meta_revenue || 0), 0);
+    const totalMetaPurchases = baseFilteredCampaigns.reduce((sum, c) => sum + (c.meta_purchases || 0), 0);
+    
+    const totalShopify = baseFilteredCampaigns.reduce((sum, c) => sum + (c.total_shopify || 0), 0);
+    const totalConfirmed = baseFilteredCampaigns.reduce((sum, c) => sum + (c.shopify_confirmed || 0), 0);
+    const totalPending = baseFilteredCampaigns.reduce((sum, c) => sum + (c.shopify_pending || 0), 0);
+    const totalCancelled = baseFilteredCampaigns.reduce((sum, c) => sum + (c.shopify_cancelled || 0), 0);
     
     return {
       totalCampaigns: baseFilteredCampaigns.length,
-      avgRoas: totalSpend > 0 ? totalRevenue / totalSpend : 0,
-      avgCpr: totalOrders > 0 ? totalSpend / totalOrders : 0
+      totalSpend,
+      avgRoas: totalSpend > 0 ? totalMetaRevenue / totalSpend : 0,
+      metaOrders: totalMetaPurchases,
+      shopifyOrders: totalShopify,
+      confirmed: totalConfirmed,
+      pending: totalPending,
+      cancelled: totalCancelled,
+      confirmationRate: totalShopify > 0 ? (totalConfirmed / totalShopify) * 100 : 0,
+      shopifyCpr: totalShopify > 0 ? totalSpend / totalShopify : 0,
+      confirmedCpr: totalConfirmed > 0 ? totalSpend / totalConfirmed : 0
     };
   }, [baseFilteredCampaigns]);
 
@@ -199,7 +232,26 @@ export default function Analytics() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-bold tracking-tight">Advanced Analytics</h1>
-          <p className="text-muted-foreground">Deep dive into CPR distribution and employee performance.</p>
+          <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-xl w-fit mt-2">
+            <button 
+              onClick={() => setActiveTab('all-campaigns')}
+              className={cn(
+                "px-4 py-1.5 text-xs font-bold rounded-lg transition-all",
+                activeTab === 'all-campaigns' ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              All Active
+            </button>
+            <button 
+              onClick={() => setActiveTab('new-campaigns')}
+              className={cn(
+                "px-4 py-1.5 text-xs font-bold rounded-lg transition-all",
+                activeTab === 'new-campaigns' ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              New Campaigns
+            </button>
+          </div>
         </div>
         
         <div className="flex items-center gap-2">
@@ -236,26 +288,26 @@ export default function Analytics() {
       </div>
 
       {/* Overview Stats */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card className="border-none shadow-sm bg-card/50 backdrop-blur-sm">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Campaigns</p>
-                <h3 className="text-2xl font-bold mt-1">{stats.totalCampaigns}</h3>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Spend</p>
+                <h3 className="text-xl font-bold mt-1">Rs {stats.totalSpend.toLocaleString()}</h3>
               </div>
               <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-                <Target className="h-5 w-5" />
+                <DollarSign className="h-5 w-5" />
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="border-none shadow-sm bg-card/50 backdrop-blur-sm">
+        <Card className="border-none shadow-sm bg-card/50 backdrop-blur-sm border-l-4 border-l-green-500">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Average ROAS</p>
-                <h3 className="text-2xl font-bold mt-1">{stats.avgRoas.toFixed(2)}x</h3>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Meta ROAS</p>
+                <h3 className="text-xl font-bold mt-1 text-green-500">{stats.avgRoas.toFixed(2)}x</h3>
               </div>
               <div className="h-10 w-10 rounded-xl bg-green-500/10 flex items-center justify-center text-green-500">
                 <Zap className="h-5 w-5" />
@@ -267,11 +319,72 @@ export default function Analytics() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Average CPR</p>
-                <h3 className="text-2xl font-bold mt-1">Rs {stats.avgCpr.toFixed(0)}</h3>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Meta Orders</p>
+                <h3 className="text-xl font-bold mt-1">{stats.metaOrders}</h3>
               </div>
-              <div className="h-10 w-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500">
-                <Award className="h-5 w-5" />
+              <div className="h-10 w-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
+                <Users className="h-5 w-5" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-none shadow-sm bg-card/50 backdrop-blur-sm">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Shopify Matched</p>
+                <div className="flex flex-col">
+                  <h3 className="text-xl font-bold mt-1 text-primary">{stats.shopifyOrders}</h3>
+                  <span className="text-[10px] text-muted-foreground font-mono">CPR: Rs {stats.shopifyCpr.toFixed(0)}</span>
+                </div>
+              </div>
+              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                <Package className="h-5 w-5" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-none shadow-sm bg-card/50 backdrop-blur-sm border-l-4 border-l-primary">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Confirmed</p>
+                <div className="flex flex-col">
+                  <div className="flex items-baseline gap-2">
+                    <h3 className="text-xl font-bold mt-1 text-green-600">{stats.confirmed}</h3>
+                    <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-green-500 text-green-600 font-bold">{stats.confirmationRate.toFixed(1)}%</Badge>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground font-mono">CPR: Rs {stats.confirmedCpr.toFixed(0)}</span>
+                </div>
+              </div>
+              <div className="h-10 w-10 rounded-xl bg-green-500/10 flex items-center justify-center text-green-600">
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-none shadow-sm bg-card/50 backdrop-blur-sm">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Pending</p>
+                <h3 className="text-xl font-bold mt-1 text-amber-600">{stats.pending}</h3>
+              </div>
+              <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600">
+                <Clock className="h-5 w-5" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-none shadow-sm bg-card/50 backdrop-blur-sm">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Cancelled</p>
+                <h3 className="text-xl font-bold mt-1 text-red-600">{stats.cancelled}</h3>
+              </div>
+              <div className="h-10 w-10 rounded-xl bg-red-500/10 flex items-center justify-center text-red-600">
+                <XCircle className="h-5 w-5" />
               </div>
             </div>
           </CardContent>

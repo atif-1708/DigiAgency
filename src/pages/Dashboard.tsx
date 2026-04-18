@@ -10,7 +10,12 @@ import {
   Users,
   Package,
   Loader2,
-  RefreshCcw
+  RefreshCcw,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  Target,
+  Zap
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -33,7 +38,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { formatLocalYYYYMMDD } from '@/lib/date-utils';
 
-const StatCard = ({ title, value, change, trend, icon: Icon, suffix = "" }: any) => (
+const StatCard = ({ title, value, change, trend, icon: Icon, suffix = "", description }: any) => (
   <Card className="overflow-hidden border-none shadow-sm bg-card/50 backdrop-blur-sm hover:bg-card/80 transition-all duration-300">
     <CardContent className="p-6">
       <div className="flex items-center justify-between">
@@ -52,6 +57,7 @@ const StatCard = ({ title, value, change, trend, icon: Icon, suffix = "" }: any)
         <h3 className="text-2xl font-bold mt-1">
           {suffix}{typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 0 }) : value}
         </h3>
+        {description && <p className="text-[10px] mt-1 text-muted-foreground font-medium">{description}</p>}
       </div>
     </CardContent>
   </Card>
@@ -63,7 +69,15 @@ export default function Dashboard() {
     totalSpend: 0,
     totalRevenue: 0,
     avgRoas: 0,
-    totalOrders: 0
+    totalOrders: 0, // Meta Orders
+    shopifyOrders: 0,
+    confirmedOrders: 0,
+    pendingOrders: 0,
+    cancelledOrders: 0,
+    avgCpr: 0,
+    confirmationRate: 0,
+    shopifyCpr: 0,
+    confirmedCpr: 0
   });
   const [chartData, setChartData] = useState<any[]>([]);
   const [storePerformance, setStorePerformance] = useState<any[]>([]);
@@ -133,15 +147,29 @@ export default function Dashboard() {
       } else {
         setHasData(true);
         const totalSpend = campaigns.reduce((acc: number, c: any) => acc + (c.spend || 0), 0);
-        const totalRevenue = campaigns.reduce((acc: number, c: any) => acc + (c.revenue || 0), 0);
-        const totalOrders = campaigns.reduce((acc: number, c: any) => acc + (c.confirmed_orders || 0), 0);
-        const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
-
+        const totalMetaRevenue = campaigns.reduce((acc: number, c: any) => acc + (c.meta_revenue || 0), 0);
+        const totalMetaPurchases = campaigns.reduce((acc: number, c: any) => acc + (c.meta_purchases || 0), 0);
+        
+        const shopifyOrders = campaigns.reduce((acc: number, c: any) => acc + (c.shopify_confirmed || 0) + (c.shopify_pending || 0) + (c.shopify_cancelled || 0), 0);
+        const confirmedOrders = campaigns.reduce((acc: number, c: any) => acc + (c.shopify_confirmed || 0), 0);
+        const pendingOrders = campaigns.reduce((acc: number, c: any) => acc + (c.shopify_pending || 0), 0);
+        const cancelledOrders = campaigns.reduce((acc: number, c: any) => acc + (c.shopify_cancelled || 0), 0);
+        
+        const avgRoas = totalSpend > 0 ? totalMetaRevenue / totalSpend : 0;
+        
         setStats({
           totalSpend,
-          totalRevenue,
+          totalRevenue: totalMetaRevenue,
           avgRoas,
-          totalOrders
+          totalOrders: totalMetaPurchases,
+          shopifyOrders,
+          confirmedOrders,
+          pendingOrders,
+          cancelledOrders,
+          confirmationRate: shopifyOrders > 0 ? (confirmedOrders / shopifyOrders) * 100 : 0,
+          shopifyCpr: shopifyOrders > 0 ? totalSpend / shopifyOrders : 0,
+          confirmedCpr: confirmedOrders > 0 ? totalSpend / confirmedOrders : 0,
+          avgCpr: totalMetaPurchases > 0 ? totalSpend / totalMetaPurchases : 0
         });
 
         // Group by date for chart (simplified)
@@ -163,7 +191,7 @@ export default function Dashboard() {
           if (!storeMap[storeName]) {
             storeMap[storeName] = { name: storeName, revenue: 0, spend: 0 };
           }
-          storeMap[storeName].revenue += c.revenue || 0;
+          storeMap[storeName].revenue += c.meta_revenue || 0;
           storeMap[storeName].spend += c.spend || 0;
         });
         setStorePerformance(Object.values(storeMap).sort((a: any, b: any) => b.revenue - a.revenue).slice(0, 5));
@@ -175,9 +203,9 @@ export default function Dashboard() {
           if (!employeeMap[empName]) {
             employeeMap[empName] = { name: empName, revenue: 0, spend: 0, orders: 0, cpr: 0, roas: 0 };
           }
-          employeeMap[empName].revenue += c.revenue || 0;
+          employeeMap[empName].revenue += c.meta_revenue || 0;
           employeeMap[empName].spend += c.spend || 0;
-          employeeMap[empName].orders += c.confirmed_orders || 0;
+          employeeMap[empName].orders += c.meta_purchases || 0;
         });
 
         const employees = Object.values(employeeMap).map((emp: any) => ({
@@ -285,9 +313,16 @@ export default function Dashboard() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard title="Total Spend" value={stats.totalSpend} icon={DollarSign} suffix="Rs " change={12} trend="up" />
-        <StatCard title="Total Revenue" value={stats.totalRevenue} icon={ShoppingCart} suffix="Rs " change={8} trend="up" />
-        <StatCard title="Avg. ROAS" value={stats.avgRoas} icon={TrendingUp} change={5} trend="up" />
-        <StatCard title="Confirmed Orders" value={stats.totalOrders} icon={Package} change={15} trend="up" />
+        <StatCard title="Meta ROAS" value={stats.avgRoas} icon={Zap} suffix="" change={8} trend="up" />
+        <StatCard title="Meta Orders" value={stats.totalOrders} icon={Users} change={15} trend="up" description={`CPR: Rs ${stats.avgCpr.toFixed(0)}`} />
+        <StatCard title="Shopify Matched" value={stats.shopifyOrders} icon={Package} change={10} trend="up" description={`CPR: Rs ${stats.shopifyCpr.toFixed(0)}`} />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StatCard title="Confirmed" value={stats.confirmedOrders} icon={CheckCircle2} change={5} trend="up" description={`CPR: Rs ${stats.confirmedCpr.toFixed(0)} | ${stats.confirmationRate.toFixed(1)}%`} />
+        <StatCard title="Pending" value={stats.pendingOrders} icon={Clock} change={2} trend="up" />
+        <StatCard title="Cancelled" value={stats.cancelledOrders} icon={XCircle} change={1} trend="down" />
+        <StatCard title="Total Campaigns" value={stats.totalSpend > 0 ? chartData.length : 0} icon={Target} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-7">
