@@ -209,7 +209,7 @@ export default function Performance() {
               <TableRow className="hover:bg-transparent border-muted">
                 <TableHead className="pl-6">Campaign Name</TableHead>
                 <TableHead>Store</TableHead>
-                <TableHead>Buyer</TableHead>
+                <TableHead>Employee</TableHead>
                 <TableHead className="text-right">Spend</TableHead>
                 <TableHead className="text-right">Revenue</TableHead>
                 <TableHead className="text-right">ROAS</TableHead>

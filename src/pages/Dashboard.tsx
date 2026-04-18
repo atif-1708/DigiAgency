@@ -15,7 +15,8 @@ import {
   Clock,
   XCircle,
   Target,
-  Zap
+  Zap,
+  Award
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -228,6 +229,17 @@ export default function Dashboard() {
     }
   }
 
+  const myRank = useMemo(() => {
+    if (profile?.role !== 'employee' || !profile?.full_name) return null;
+    const sorted = [...employeePerformance].sort((a: any, b: any) => b.revenue - a.revenue);
+    const index = sorted.findIndex(e => e.name === profile.full_name);
+    return index !== -1 ? index + 1 : null;
+  }, [employeePerformance, profile]);
+
+  const totalEmployees = useMemo(() => {
+    return employeePerformance.length;
+  }, [employeePerformance]);
+
   const sortedEmployees = useMemo(() => {
     return [...employeePerformance].sort((a: any, b: any) => {
       if (employeeSortBy === 'revenue-desc') return b.revenue - a.revenue;
@@ -299,8 +311,8 @@ export default function Dashboard() {
     <div className="py-6 space-y-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-2">
           <div className="space-y-1">
-            <h1 className="text-2xl font-black tracking-tight lg:text-3xl text-primary">Agency Core</h1>
-            <p className="text-sm text-muted-foreground font-medium">Performance intelligence across your enterprise.</p>
+            <h1 className="text-2xl font-black tracking-tight lg:text-3xl text-primary">Performance Dashboard</h1>
+            <p className="text-sm text-muted-foreground font-medium">Real-time intelligence for your assets.</p>
           </div>
           <div className="flex items-center gap-3 bg-muted/30 p-1.5 rounded-2xl backdrop-blur-sm border border-border/50">
             <Select value={dateRange} onValueChange={setDateRange}>
@@ -337,51 +349,82 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-7">
-        <Card className="lg:col-span-4 border-none shadow-sm bg-card/50 backdrop-blur-sm rounded-2xl">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <div>
-              <CardTitle>Top Performing Employees</CardTitle>
-              <CardDescription>Contribution by employee.</CardDescription>
+        {profile?.role === 'employee' ? (
+          <Card className="lg:col-span-4 border-none shadow-xl bg-gradient-to-br from-primary to-blue-600 text-primary-foreground rounded-[2rem] overflow-hidden relative group">
+            <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform duration-700">
+              <Award size={200} />
             </div>
-            <Select value={employeeSortBy} onValueChange={setEmployeeSortBy}>
-              <SelectTrigger className="w-[140px] h-8 text-[11px] rounded-lg bg-background/50 border-none shadow-sm">
-                <SelectValue placeholder="Sort By" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="revenue-desc">By Revenue</SelectItem>
-                <SelectItem value="orders-desc">By Orders</SelectItem>
-                <SelectItem value="roas-desc">By ROAS</SelectItem>
-                <SelectItem value="cpr-asc">By CPR</SelectItem>
-              </SelectContent>
-            </Select>
-          </CardHeader>
-          <CardContent className="h-[350px] pl-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={sortedEmployees} layout="vertical" margin={{ left: 40, right: 40 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} opacity={0.1} />
-                <XAxis type="number" hide />
-                <YAxis 
-                  dataKey="name" 
-                  type="category" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  fontSize={12}
-                  width={100}
-                />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: 'hsl(var(--card))', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
-                  cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                />
-                <Bar 
-                  dataKey={employeeSortBy.split('-')[0]} 
-                  fill="var(--color-primary)" 
-                  radius={[0, 4, 4, 0]} 
-                  barSize={32} 
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+            <CardHeader className="p-10 pb-0">
+              <CardTitle className="text-2xl font-black tracking-tight flex items-center gap-3">
+                <Target className="h-8 w-8" />
+                Performance Milestone
+              </CardTitle>
+              <CardDescription className="text-primary-foreground/70 font-bold uppercase tracking-widest text-[10px]">Your current hierarchy standing</CardDescription>
+            </CardHeader>
+            <CardContent className="p-10 pt-8">
+              <div className="flex flex-col gap-6">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-[0.2em] text-primary-foreground/50 mb-4">Enterprise Rank</p>
+                  <div className="flex items-baseline gap-4">
+                    <span className="text-7xl font-black tracking-tighter">#{myRank || '-'}</span>
+                    <span className="text-xl font-bold opacity-50 tracking-tight">/ {totalEmployees} Strategists</span>
+                  </div>
+                </div>
+                <div className="pt-6 border-t border-white/10">
+                  <p className="text-sm font-medium leading-relaxed opacity-90 max-w-md">
+                    You are currently ranked <span className="font-black underline decoration-white/30 underline-offset-4">#{myRank}</span> across the entire agency fleet. Optimize your CPR and scale ROAS to climb the leaderboard.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="lg:col-span-4 border-none shadow-sm bg-card/50 backdrop-blur-sm rounded-2xl">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <div>
+                <CardTitle>Top Performing Employees</CardTitle>
+                <CardDescription>Contribution by employee.</CardDescription>
+              </div>
+              <Select value={employeeSortBy} onValueChange={setEmployeeSortBy}>
+                <SelectTrigger className="w-[140px] h-8 text-[11px] rounded-lg bg-background/50 border-none shadow-sm">
+                  <SelectValue placeholder="Sort By" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="revenue-desc">By Revenue</SelectItem>
+                  <SelectItem value="orders-desc">By Orders</SelectItem>
+                  <SelectItem value="roas-desc">By ROAS</SelectItem>
+                  <SelectItem value="cpr-asc">By CPR</SelectItem>
+                </SelectContent>
+              </Select>
+            </CardHeader>
+            <CardContent className="h-[350px] pl-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={sortedEmployees} layout="vertical" margin={{ left: 40, right: 40 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} opacity={0.1} />
+                  <XAxis type="number" hide />
+                  <YAxis 
+                    dataKey="name" 
+                    type="category" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    fontSize={12}
+                    width={100}
+                  />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
+                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                  />
+                  <Bar 
+                    dataKey={employeeSortBy.split('-')[0]} 
+                    fill="var(--color-primary)" 
+                    radius={[0, 4, 4, 0]} 
+                    barSize={32} 
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="lg:col-span-3 border-none shadow-sm bg-card/50 backdrop-blur-sm">
           <CardHeader>

@@ -58,8 +58,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       ]
     : [
         { icon: LayoutDashboard, label: 'Dashboard', href: '/' },
-        { icon: Store, label: 'Stores', href: '/stores' },
-        { icon: Users, label: 'Employees', href: '/employees' },
+        ...(profile?.role !== 'employee' ? [
+          { icon: Store, label: 'Stores', href: '/stores' },
+          { icon: Users, label: 'Employees', href: '/employees' },
+        ] : []),
         { icon: TrendingUp, label: 'Performance', href: '/performance' },
         { icon: PieChart, label: 'Analytics', href: '/analytics' },
       ];
@@ -73,7 +75,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="h-10 w-10 rounded-2xl bg-primary flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20">
               <TrendingUp className="h-6 w-6" />
             </div>
-            <span>AdIntel</span>
+            <span>AdHisaab</span>
           </Link>
         </div>
         
@@ -118,7 +120,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <div className="md:hidden fixed top-0 left-0 right-0 h-16 border-b bg-background/80 backdrop-blur-md z-50 flex items-center justify-between px-4">
         <Link to="/" className="flex items-center gap-2 font-bold text-lg">
           <TrendingUp className="h-5 w-5 text-primary" />
-          <span>AdIntel</span>
+          <span>AdHisaab</span>
         </Link>
         <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
           {isMobileMenuOpen ? <X /> : <Menu />}

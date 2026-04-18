@@ -58,7 +58,7 @@ export default function Analytics() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedEmployee, setSelectedEmployee] = useState('all-employees');
+  const [selectedEmployee, setSelectedEmployee] = useState(profile?.role === 'employee' ? profile.id : 'all-employees');
   const [dateRange, setDateRange] = useState('last-30-days');
   const [minRoas, setMinRoas] = useState(0);
   const [selectedCprRange, setSelectedCprRange] = useState<string | null>(null);
@@ -87,6 +87,10 @@ export default function Analytics() {
       const params = new URLSearchParams({
         agencyId: profile?.agency_id || '',
       });
+      
+      if (profile?.role === 'employee') {
+        params.append('employeeId', profile.id);
+      }
       
       if (isRefresh) params.append('refresh', 'true');
 
@@ -257,19 +261,21 @@ export default function Analytics() {
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
-          <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-            <SelectTrigger className="w-[180px] h-10 rounded-xl bg-card border-none shadow-sm font-bold text-xs px-4">
-              <SelectValue>
-                {selectedEmployee === 'all-employees' ? 'All Employees' : employees.find(e => e.id === selectedEmployee)?.full_name}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent className="rounded-xl border-none shadow-2xl">
-              <SelectItem value="all-employees">All Employees</SelectItem>
-              {employees.map(e => (
-                <SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {profile?.role !== 'employee' && (
+            <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
+              <SelectTrigger className="w-[180px] h-10 rounded-xl bg-card border-none shadow-sm font-bold text-xs px-4">
+                <SelectValue>
+                  {selectedEmployee === 'all-employees' ? 'All Employees' : employees.find(e => e.id === selectedEmployee)?.full_name}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-none shadow-2xl">
+                <SelectItem value="all-employees">All Employees</SelectItem>
+                {employees.map(e => (
+                  <SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Select value={dateRange} onValueChange={setDateRange}>
             <SelectTrigger className="w-[160px] h-10 rounded-xl bg-card border-none shadow-sm font-bold text-xs px-4">
               <SelectValue placeholder="Time Range" />
@@ -574,11 +580,11 @@ export default function Analytics() {
               <TableRow className="hover:bg-transparent border-border/10 h-10">
                 <TableHead className="pl-6 font-bold uppercase tracking-widest text-[9px] w-[250px]">Campaign Identity</TableHead>
                 <TableHead className="font-bold uppercase tracking-widest text-[9px]">Strategist</TableHead>
-                <TableHead className="text-right font-bold uppercase tracking-widest text-[9px]">Investment</TableHead>
+                <TableHead className="text-right font-bold uppercase tracking-widest text-[9px]">Ad Spend</TableHead>
                 <TableHead className="text-right font-bold uppercase tracking-widest text-[9px]">Meta CPR</TableHead>
-                <TableHead className="text-right font-bold uppercase tracking-widest text-[9px]">Efficiency</TableHead>
-                <TableHead className="text-right font-bold uppercase tracking-widest text-[9px]">Vol (Meta)</TableHead>
-                <TableHead className="text-right font-bold uppercase tracking-widest text-[9px] whitespace-nowrap">Shopify Segment</TableHead>
+                <TableHead className="text-right font-bold uppercase tracking-widest text-[9px]">ROAS</TableHead>
+                <TableHead className="text-right font-bold uppercase tracking-widest text-[9px]">Purchases</TableHead>
+                <TableHead className="text-right font-bold uppercase tracking-widest text-[9px] whitespace-nowrap">Shopify Orders</TableHead>
                 <TableHead className="text-right font-bold uppercase tracking-widest text-[9px]">Confirmed</TableHead>
                 <TableHead className="text-right font-bold uppercase tracking-widest text-[9px]">Pending</TableHead>
                 <TableHead className="text-right font-bold uppercase tracking-widest text-[9px]">Cancelled</TableHead>
