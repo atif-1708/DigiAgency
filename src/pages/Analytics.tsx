@@ -60,6 +60,7 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true);
   const [selectedEmployee, setSelectedEmployee] = useState(profile?.role === 'employee' ? profile.id : 'all-employees');
   const [dateRange, setDateRange] = useState('last-30-days');
+  const [customDates, setCustomDates] = useState({ start: '', end: '' });
   const [minRoas, setMinRoas] = useState(0);
   const [selectedCprRange, setSelectedCprRange] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState('cpr-asc');
@@ -108,6 +109,9 @@ export default function Analytics() {
         start.setDate(start.getDate() - 30);
       } else if (dateRange === 'last-60-days') {
         start.setDate(start.getDate() - 60);
+      } else if (dateRange === 'custom' && customDates.start && customDates.end) {
+        start = new Date(customDates.start);
+        end = new Date(customDates.end);
       }
       
       setCurrentRange({ start, end });
@@ -276,6 +280,23 @@ export default function Analytics() {
               </SelectContent>
             </Select>
           )}
+          {dateRange === 'custom' && (
+            <div className="flex items-center gap-2 px-3 h-10 rounded-xl bg-card border-none shadow-sm">
+              <input 
+                type="date" 
+                className="bg-transparent border-none text-[10px] font-bold uppercase tracking-widest outline-none w-28" 
+                value={customDates.start}
+                onChange={(e) => setCustomDates(prev => ({ ...prev, start: e.target.value }))}
+              />
+              <span className="text-[10px] opacity-30 px-1 font-bold">TO</span>
+              <input 
+                type="date" 
+                className="bg-transparent border-none text-[10px] font-bold uppercase tracking-widest outline-none w-28" 
+                value={customDates.end}
+                onChange={(e) => setCustomDates(prev => ({ ...prev, end: e.target.value }))}
+              />
+            </div>
+          )}
           <Select value={dateRange} onValueChange={setDateRange}>
             <SelectTrigger className="w-[160px] h-10 rounded-xl bg-card border-none shadow-sm font-bold text-xs px-4">
               <SelectValue placeholder="Time Range" />
@@ -286,6 +307,7 @@ export default function Analytics() {
               <SelectItem value="last-7-days">Last 7 Days</SelectItem>
               <SelectItem value="last-30-days">Last 30 Days</SelectItem>
               <SelectItem value="last-60-days">Last 60 Days</SelectItem>
+              <SelectItem value="custom">Custom Range</SelectItem>
             </SelectContent>
           </Select>
           <Button onClick={() => fetchData(true)} disabled={loading} size="icon" className={cn("h-10 w-10 rounded-xl shadow-md transition-all", loading && "bg-muted text-muted-foreground")}>
@@ -340,7 +362,7 @@ export default function Analytics() {
             <div>
               <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Meta Orders</p>
               <h3 className="text-xl font-black tracking-tight">{stats.metaOrders}</h3>
-              <p className="text-[8px] mt-1 font-bold text-muted-foreground uppercase opacity-60">CPR: Rs {stats.metaCpr.toFixed(0)}</p>
+              <p className="text-[8px] mt-1 font-bold text-blue-600 dark:text-blue-400 uppercase opacity-60">CPR: Rs {stats.metaCpr.toFixed(0)}</p>
             </div>
           </CardContent>
         </Card>
@@ -367,7 +389,7 @@ export default function Analytics() {
             <div>
               <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Shopify Matched</p>
               <h3 className="text-xl font-black tracking-tight text-primary">{stats.shopifyOrders}</h3>
-              <p className="text-[8px] mt-1 font-bold text-muted-foreground uppercase opacity-60">CPR: Rs {stats.shopifyCpr.toFixed(0)}</p>
+              <p className="text-[8px] mt-1 font-bold text-blue-600 dark:text-blue-400 uppercase opacity-60">CPR: Rs {stats.shopifyCpr.toFixed(0)}</p>
             </div>
           </CardContent>
         </Card>
@@ -383,7 +405,7 @@ export default function Analytics() {
             <div>
               <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Confirmed</p>
               <h3 className="text-xl font-black tracking-tight text-green-600">{stats.confirmed}</h3>
-              <p className="text-[8px] mt-1 font-bold text-muted-foreground uppercase opacity-60">CPR: Rs {stats.confirmedCpr.toFixed(0)}</p>
+              <p className="text-[8px] mt-1 font-bold text-blue-600 dark:text-blue-400 uppercase opacity-60">CPR: Rs {stats.confirmedCpr.toFixed(0)}</p>
             </div>
           </CardContent>
         </Card>
@@ -623,7 +645,7 @@ export default function Analytics() {
                       <span className="font-bold text-xs text-primary">Rs {camp.spend.toLocaleString()}</span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <span className="font-semibold text-xs text-muted-foreground">Rs {camp.cpr.toFixed(0)}</span>
+                      <span className="font-semibold text-xs text-blue-600 dark:text-blue-400">Rs {camp.cpr.toFixed(0)}</span>
                     </TableCell>
                     <TableCell className="text-right">
                       <span className={cn(
@@ -642,13 +664,13 @@ export default function Analytics() {
                     <TableCell className="text-right">
                       <div className="flex flex-col items-end">
                         <span className="font-bold text-xs text-primary leading-none">{camp.total_shopify}</span>
-                        <span className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 mt-0.5 whitespace-nowrap">Rs {camp.shopify_cpr.toFixed(0)} CPR</span>
+                        <span className="text-[8px] font-bold text-blue-600 dark:text-blue-400 uppercase opacity-60 mt-0.5 whitespace-nowrap">Rs {camp.shopify_cpr.toFixed(0)} CPR</span>
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex flex-col items-end">
                         <span className="font-bold text-xs text-green-600 leading-none">{camp.shopify_confirmed || 0}</span>
-                        <span className="text-[8px] font-bold text-green-600/70 uppercase opacity-60 mt-0.5 whitespace-nowrap">Rs {camp.confirmed_cpr.toFixed(0)}</span>
+                        <span className="text-[8px] font-bold text-blue-600 dark:text-blue-400 uppercase opacity-60 mt-0.5 whitespace-nowrap">Rs {camp.confirmed_cpr.toFixed(0)}</span>
                       </div>
                     </TableCell>
                     <TableCell className="text-right font-bold text-xs text-amber-500">{camp.shopify_pending || 0}</TableCell>

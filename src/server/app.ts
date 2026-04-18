@@ -285,6 +285,59 @@ export function createApp() {
     }
   });
 
+  // ── Admin: Update User ──────────────────────────────────────────────────────
+  apiRouter.post("/admin/update-user", async (req, res) => {
+    const { userId, email, password, fullName, role, identifier, storeId } = req.body;
+    try {
+      const supabaseAdmin = getSupabaseAdmin();
+      if (!supabaseAdmin) throw new Error("Supabase not configured");
+
+      const updateData: any = {};
+      if (email) updateData.email = email;
+      if (password) updateData.password = password;
+      if (fullName) updateData.user_metadata = { full_name: fullName };
+
+      if (Object.keys(updateData).length > 0) {
+        const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, updateData);
+        if (authError) throw authError;
+      }
+
+      const { error: profileError } = await supabaseAdmin
+        .from("profiles")
+        .update({ 
+          full_name: fullName,
+          role: role,
+          identifier: identifier,
+          store_id: storeId 
+        })
+        .eq("id", userId);
+
+      if (profileError) throw profileError;
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ── Admin: Delete User ──────────────────────────────────────────────────────
+  apiRouter.post("/admin/delete-user", async (req, res) => {
+    const { userId } = req.body;
+    try {
+      const supabaseAdmin = getSupabaseAdmin();
+      if (!supabaseAdmin) throw new Error("Supabase not configured");
+
+      const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+      if (authError) throw authError;
+
+      // Profiles usually cascade, but let's be explicit
+      await supabaseAdmin.from("profiles").delete().eq("id", userId);
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ── Meta: Sync Campaigns (single store) ────────────────────────────────────
   apiRouter.post("/meta/sync-campaigns", async (req, res) => {
     const { storeId } = req.body;

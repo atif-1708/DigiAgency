@@ -32,6 +32,10 @@ export default function Employees() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
   const [stores, setStores] = useState<any[]>([]);
 
@@ -100,45 +104,99 @@ export default function Employees() {
     }
   }
 
-  async function handleAddMember(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setIsAdding(true);
     
     try {
-      const response = await fetch('/api/admin/create-user', {
+      const endpoint = isEditing ? '/api/admin/update-user' : '/api/admin/create-user';
+      const payload: any = {
+        email: newMember.email,
+        fullName: newMember.name,
+        role: newMember.role,
+        identifier: newMember.identifier,
+        storeId: newMember.storeId
+      };
+
+      if (isEditing) {
+        payload.userId = selectedMemberId;
+        if (newMember.password) payload.password = newMember.password;
+      } else {
+        payload.password = newMember.password;
+        payload.agencyId = profile?.agency_id;
+      }
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: newMember.email,
-          password: newMember.password,
-          fullName: newMember.name,
-          role: newMember.role,
-          agencyId: profile?.agency_id,
-          identifier: newMember.identifier,
-          storeId: newMember.storeId
-        })
+        body: JSON.stringify(payload)
       });
 
       const contentType = response.headers.get("content-type");
       if (contentType && contentType.indexOf("application/json") !== -1) {
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Failed to create user');
+        if (!response.ok) throw new Error(result.error || `Failed to ${isEditing ? 'update' : 'create'} user`);
 
-        toast.success('Member added successfully!', {
-          description: `${newMember.name} has been added to the team.`
+        toast.success(isEditing ? 'Member updated successfully!' : 'Member added successfully!', {
+          description: `${newMember.name} has been ${isEditing ? 'updated' : 'added to the team'}.`
         });
         
-        setNewMember({ name: '', email: '', password: '', role: 'employee', identifier: '' });
+        setIsDialogOpen(false);
+        resetForm();
         fetchEmployees();
       } else {
         const text = await response.text();
-        console.error('Non-JSON response:', text);
         throw new Error(`Server returned an unexpected response: ${text.substring(0, 100)}...`);
       }
     } catch (error: any) {
-      toast.error('Failed to add member', { description: error.message });
+      toast.error(isEditing ? 'Failed to update member' : 'Failed to add member', { description: error.message });
     } finally {
       setIsAdding(false);
+    }
+  }
+
+  function resetForm() {
+    setNewMember({ name: '', email: '', password: '', role: 'employee', identifier: '', storeId: '' });
+    setIsEditing(false);
+    setSelectedMemberId(null);
+  }
+
+  function openEditModal(emp: any) {
+    setNewMember({
+      name: emp.full_name || '',
+      email: emp.email || '',
+      password: '', // Don't pre-fill password for editing
+      role: emp.role || 'employee',
+      identifier: emp.identifier || '',
+      storeId: emp.store_id || ''
+    });
+    setIsEditing(true);
+    setSelectedMemberId(emp.id);
+    setIsDialogOpen(true);
+  }
+
+  async function handleDeleteMember(userId: string) {
+    if (!confirm('Are you sure you want to delete this team member? This action cannot be undone.')) return;
+    
+    setIsDeleting(userId);
+    try {
+      const response = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to delete member');
+      }
+
+      toast.success('Member removed', { description: 'The team member has been successfully deleted.' });
+      fetchEmployees();
+    } catch (error: any) {
+      toast.error('Deletion failed', { description: error.message });
+    } finally {
+      setIsDeleting(null);
     }
   }
 
@@ -159,17 +217,20 @@ export default function Employees() {
         </div>
         
         {profile?.role !== 'employee' && (
-          <Dialog>
-            <DialogTrigger render={<Button className="gap-2" />}>
+          <Dialog open={isDialogOpen} onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) resetForm();
+          }}>
+            <DialogTrigger render={<Button className="gap-2" onClick={() => setIsDialogOpen(true)} />}>
               <Plus className="h-4 w-4" />
               Add Member
             </DialogTrigger>
             <DialogContent className="sm:max-w-[425px]">
-              <form onSubmit={handleAddMember}>
+              <form onSubmit={handleSubmit}>
                 <DialogHeader>
-                  <DialogTitle>Add Team Member</DialogTitle>
+                  <DialogTitle>{isEditing ? 'Edit Team Member' : 'Add Team Member'}</DialogTitle>
                   <DialogDescription>
-                    Invite a new member to your agency and set their identifier.
+                    {isEditing ? "Update member's details and settings." : "Invite a new member to your agency and set their identifier."}
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
@@ -195,14 +256,14 @@ export default function Employees() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="password">Initial Password</Label>
+                    <Label htmlFor="password">{isEditing ? 'New Password (Optional)' : 'Initial Password'}</Label>
                     <Input 
                       id="password" 
                       type="password" 
-                      placeholder="Set a password" 
+                      placeholder={isEditing ? 'Leave blank to keep current' : 'Set a password'} 
                       value={newMember.password}
                       onChange={e => setNewMember({...newMember, password: e.target.value})}
-                      required
+                      required={!isEditing}
                     />
                   </div>
                   <div className="grid gap-2">
@@ -256,7 +317,7 @@ export default function Employees() {
                 </div>
                 <DialogFooter>
                   <Button type="submit" disabled={isAdding}>
-                    {isAdding ? 'Adding...' : 'Add Member'}
+                    {isAdding ? 'Saving...' : (isEditing ? 'Update Member' : 'Add Member')}
                   </Button>
                 </DialogFooter>
               </form>
@@ -314,11 +375,21 @@ export default function Employees() {
                     {profile?.role !== 'employee' && (
                       <TableCell className="text-right pr-6">
                         <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditModal(emp)}>
                             <Edit2 className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive">
-                            <Trash2 className="h-4 w-4" />
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteMember(emp.id)}
+                            disabled={isDeleting === emp.id}
+                          >
+                            {isDeleting === emp.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
                           </Button>
                         </div>
                       </TableCell>

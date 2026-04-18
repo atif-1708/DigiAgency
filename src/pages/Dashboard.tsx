@@ -61,7 +61,7 @@ const StatCard = ({ title, value, change, trend, icon: Icon, suffix = "", descri
         {description && (
           <div className="mt-2 flex items-center gap-1.5">
             <div className="h-1 w-1 rounded-full bg-primary/30" />
-            <p className="text-[10px] text-muted-foreground font-bold tracking-wide uppercase opacity-70">{description}</p>
+            <div className="text-[10px] text-muted-foreground font-bold tracking-wide uppercase opacity-70">{description}</div>
           </div>
         )}
       </div>
@@ -92,12 +92,32 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
   const [dateRange, setDateRange] = useState('last-30-days');
+  const [customDates, setCustomDates] = useState({ start: '', end: '' });
+  const [storeEmployeeCount, setStoreEmployeeCount] = useState(0);
 
   useEffect(() => {
     if (profile?.agency_id) {
       fetchStats();
+      if (profile.role === 'employee' && profile.store_id) {
+        fetchStoreEmployeeCount();
+      }
     }
   }, [profile, dateRange]);
+
+  async function fetchStoreEmployeeCount() {
+    try {
+      const { count, error } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true })
+        .eq('store_id', profile?.store_id);
+      
+      if (!error && count !== null) {
+        setStoreEmployeeCount(count);
+      }
+    } catch (e) {
+      console.error('Error fetching store employee count:', e);
+    }
+  }
 
   async function fetchStats(isRefresh = false) {
     setLoading(true);
@@ -110,7 +130,10 @@ export default function Dashboard() {
         params.append('refresh', 'true');
       }
 
-      if (profile?.role === 'employee') {
+      if (profile?.role === 'employee' && profile.store_id) {
+        // Fetch whole store for ranking if employee
+        params.append('storeId', profile.store_id);
+      } else if (profile?.role === 'employee') {
         params.append('employeeId', profile.id);
       }
 
@@ -128,6 +151,9 @@ export default function Dashboard() {
         start.setDate(start.getDate() - 30);
       } else if (dateRange === 'last-60-days') {
         start.setDate(start.getDate() - 60);
+      } else if (dateRange === 'custom' && customDates.start && customDates.end) {
+        start = new Date(customDates.start);
+        end = new Date(customDates.end);
       }
 
       params.append('startDate', formatLocalYYYYMMDD(start));
@@ -152,14 +178,20 @@ export default function Dashboard() {
         setHasData(false);
       } else {
         setHasData(true);
-        const totalSpend = campaigns.reduce((acc: number, c: any) => acc + (c.spend || 0), 0);
-        const totalMetaRevenue = campaigns.reduce((acc: number, c: any) => acc + (c.meta_revenue || 0), 0);
-        const totalMetaPurchases = campaigns.reduce((acc: number, c: any) => acc + (c.meta_purchases || 0), 0);
         
-        const shopifyOrders = campaigns.reduce((acc: number, c: any) => acc + (c.shopify_confirmed || 0) + (c.shopify_pending || 0) + (c.shopify_cancelled || 0), 0);
-        const confirmedOrders = campaigns.reduce((acc: number, c: any) => acc + (c.shopify_confirmed || 0), 0);
-        const pendingOrders = campaigns.reduce((acc: number, c: any) => acc + (c.shopify_pending || 0), 0);
-        const cancelledOrders = campaigns.reduce((acc: number, c: any) => acc + (c.shopify_cancelled || 0), 0);
+        // If employee, we filter the top-level stats to only their campaigns
+        const displayCampaigns = profile?.role === 'employee' 
+          ? campaigns.filter((c: any) => c.employee_id === profile.id)
+          : campaigns;
+
+        const totalSpend = displayCampaigns.reduce((acc: number, c: any) => acc + (c.spend || 0), 0);
+        const totalMetaRevenue = displayCampaigns.reduce((acc: number, c: any) => acc + (c.meta_revenue || 0), 0);
+        const totalMetaPurchases = displayCampaigns.reduce((acc: number, c: any) => acc + (c.meta_purchases || 0), 0);
+        
+        const shopifyOrders = displayCampaigns.reduce((acc: number, c: any) => acc + (c.shopify_confirmed || 0) + (c.shopify_pending || 0) + (c.shopify_cancelled || 0), 0);
+        const confirmedOrders = displayCampaigns.reduce((acc: number, c: any) => acc + (c.shopify_confirmed || 0), 0);
+        const pendingOrders = displayCampaigns.reduce((acc: number, c: any) => acc + (c.shopify_pending || 0), 0);
+        const cancelledOrders = displayCampaigns.reduce((acc: number, c: any) => acc + (c.shopify_cancelled || 0), 0);
         
         const avgRoas = totalSpend > 0 ? totalMetaRevenue / totalSpend : 0;
         
@@ -237,8 +269,11 @@ export default function Dashboard() {
   }, [employeePerformance, profile]);
 
   const totalEmployees = useMemo(() => {
+    if (profile?.role === 'employee') {
+      return storeEmployeeCount || employeePerformance.length;
+    }
     return employeePerformance.length;
-  }, [employeePerformance]);
+  }, [employeePerformance, storeEmployeeCount, profile]);
 
   const sortedEmployees = useMemo(() => {
     return [...employeePerformance].sort((a: any, b: any) => {
@@ -314,7 +349,24 @@ export default function Dashboard() {
             <h1 className="text-2xl font-black tracking-tight lg:text-3xl text-primary">Performance Dashboard</h1>
             <p className="text-sm text-muted-foreground font-medium">Real-time intelligence for your assets.</p>
           </div>
-          <div className="flex items-center gap-3 bg-muted/30 p-1.5 rounded-2xl backdrop-blur-sm border border-border/50">
+          <div className="flex flex-col md:flex-row items-center gap-3 bg-muted/30 p-1.5 rounded-2xl backdrop-blur-sm border border-border/50">
+            {dateRange === 'custom' && (
+              <div className="flex items-center gap-2 px-2">
+                <input 
+                  type="date" 
+                  className="bg-transparent border-none text-[10px] font-bold uppercase tracking-widest outline-none w-28" 
+                  value={customDates.start}
+                  onChange={(e) => setCustomDates(prev => ({ ...prev, start: e.target.value }))}
+                />
+                <span className="text-[10px] opacity-30 px-1 font-bold">TO</span>
+                <input 
+                  type="date" 
+                  className="bg-transparent border-none text-[10px] font-bold uppercase tracking-widest outline-none w-28" 
+                  value={customDates.end}
+                  onChange={(e) => setCustomDates(prev => ({ ...prev, end: e.target.value }))}
+                />
+              </div>
+            )}
             <Select value={dateRange} onValueChange={setDateRange}>
               <SelectTrigger className="w-[180px] h-10 rounded-xl bg-background border-none shadow-sm font-bold text-xs px-4 focus:ring-primary/20">
                 <SelectValue placeholder="Time Range" />
@@ -325,6 +377,7 @@ export default function Dashboard() {
                 <SelectItem value="last-7-days">Last 7 Days</SelectItem>
                 <SelectItem value="last-30-days">Last 30 Days</SelectItem>
                 <SelectItem value="last-60-days">Last 60 Days</SelectItem>
+                <SelectItem value="custom">Custom Range</SelectItem>
               </SelectContent>
             </Select>
             <Button onClick={() => fetchStats(true)} disabled={loading} size="icon" className={cn("h-10 w-10 rounded-xl shadow-md shadow-primary/5 transition-all", loading && "bg-muted text-muted-foreground")}>
@@ -337,12 +390,39 @@ export default function Dashboard() {
         <StatCard title="Total Spend" value={stats.totalSpend} icon={DollarSign} suffix="Rs " change={12} trend="up" />
         <StatCard title="Meta Revenue" value={stats.totalRevenue} icon={ShoppingCart} suffix="Rs " change={8} trend="up" />
         <StatCard title="Meta ROAS" value={stats.avgRoas} icon={Zap} change={10} trend="up" />
-        <StatCard title="Meta Orders" value={stats.totalOrders} icon={Users} change={15} trend="up" description={`Rs ${stats.avgCpr.toFixed(0)} CPR`} />
-        <StatCard title="Shopify Matched" value={stats.shopifyOrders} icon={Package} change={10} trend="up" description={`Rs ${stats.shopifyCpr.toFixed(0)} CPR`} />
+        <StatCard 
+          title="Meta Orders" 
+          value={stats.totalOrders} 
+          icon={Users} 
+          change={15} 
+          trend="up" 
+          description={<span className="text-blue-600 dark:text-blue-400">Rs {stats.avgCpr.toFixed(0)} CPR</span>} 
+        />
+        <StatCard 
+          title="Shopify Matched" 
+          value={stats.shopifyOrders} 
+          icon={Package} 
+          change={10} 
+          trend="up" 
+          description={<span className="text-blue-600 dark:text-blue-400">Rs {stats.shopifyCpr.toFixed(0)} CPR</span>} 
+        />
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <StatCard title="Confirmed" value={stats.confirmedOrders} icon={CheckCircle2} change={5} trend="up" description={`Rs ${stats.confirmedCpr.toFixed(0)} | ${stats.confirmationRate.toFixed(1)}%`} />
+        <StatCard 
+          title="Confirmed" 
+          value={stats.confirmedOrders} 
+          icon={CheckCircle2} 
+          change={5} 
+          trend="up" 
+          description={
+            <div className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+              <span>Rs {stats.confirmedCpr.toFixed(0)} CPR</span>
+              <span className="opacity-20 mx-1">|</span>
+              <span className="text-muted-foreground">{stats.confirmationRate.toFixed(1)}%</span>
+            </div>
+          } 
+        />
         <StatCard title="Pending" value={stats.pendingOrders} icon={Clock} change={2} trend="up" />
         <StatCard title="Cancelled" value={stats.cancelledOrders} icon={XCircle} change={1} trend="down" />
         <StatCard title="Total Campaigns" value={stats.confirmedOrders + stats.pendingOrders} icon={Target} />
@@ -367,12 +447,12 @@ export default function Dashboard() {
                   <p className="text-[11px] font-black uppercase tracking-[0.2em] text-primary-foreground/50 mb-4">Enterprise Rank</p>
                   <div className="flex items-baseline gap-4">
                     <span className="text-7xl font-black tracking-tighter">#{myRank || '-'}</span>
-                    <span className="text-xl font-bold opacity-50 tracking-tight">/ {totalEmployees} Strategists</span>
+                    <span className="text-xl font-bold opacity-50 tracking-tight">/ {totalEmployees} {totalEmployees === 1 ? 'Strategist' : 'Strategists'}</span>
                   </div>
                 </div>
                 <div className="pt-6 border-t border-white/10">
                   <p className="text-sm font-medium leading-relaxed opacity-90 max-w-md">
-                    You are currently ranked <span className="font-black underline decoration-white/30 underline-offset-4">#{myRank}</span> across the entire agency fleet. Optimize your CPR and scale ROAS to climb the leaderboard.
+                    You are currently ranked <span className="font-black underline decoration-white/30 underline-offset-4">#{myRank || '?'}</span> across your assigned store fleet. Optimize your CPR and scale ROAS to climb the leaderboard.
                   </p>
                 </div>
               </div>
