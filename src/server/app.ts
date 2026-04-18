@@ -546,33 +546,34 @@ export function createApp() {
       let totalOrdersFetched = 0;
       const storeErrors: any[] = [];
 
-      const since = (startDate as string)?.split('T')[0] || "2023-01-01";
-      const until = (endDate as string)?.split('T')[0] || new Date().toISOString().split('T')[0];
+    const since = (startDate as string)?.split('T')[0] || "2023-01-01";
+    const until = (endDate as string)?.split('T')[0] || new Date().toISOString().split('T')[0];
 
-      for (const store of stores || []) {
-        if (!store.meta_access_token) continue;
+    const storeFetchPromises = (stores || []).map(async (store) => {
+      if (!store.meta_access_token) return;
 
-        let shopifyOrders: any[] = [];
-        const ordersByCampaignId = new Map<string, any[]>();
-        const ordersByIdentifier = new Map<string, any[]>();
+      let shopifyOrders: any[] = [];
+      const ordersByIdentifier = new Map<string, any[]>();
 
-        if (store.shopify_domain && store.shopify_access_token) {
-          try {
-            const cleanDomain = store.shopify_domain.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
-            const cleanToken = store.shopify_access_token.trim().replace(/^["']|["']$/g, "");
-            
-            const startDateBuffered = new Date(since);
-            startDateBuffered.setDate(startDateBuffered.getDate() - 3); 
-            const shopifySince = startDateBuffered.toISOString();
+      if (store.shopify_domain && store.shopify_access_token) {
+        try {
+          const cleanDomain = store.shopify_domain.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
+          const cleanToken = store.shopify_access_token.trim().replace(/^["']|["']$/g, "");
+          
+          const startDateBuffered = new Date(since);
+          startDateBuffered.setDate(startDateBuffered.getDate() - 3); 
+          const shopifySince = startDateBuffered.toISOString();
 
-            let allStoreOrders: any[] = [];
-            let nextPageUrl: string | null = `https://${cleanDomain}/admin/api/2024-04/orders.json?status=any&created_at_min=${shopifySince}&limit=250`;
-            let pagesFetched = 0;
+          let allStoreOrders: any[] = [];
+          let nextPageUrl: string | null = `https://${cleanDomain}/admin/api/2024-04/orders.json?status=any&created_at_min=${shopifySince}&limit=250`;
+          let pagesFetched = 0;
 
-            while (nextPageUrl && pagesFetched < 50) {
+          // Reduced page depth to 20 (5000 orders) to prevent timeouts
+          while (nextPageUrl && pagesFetched < 20) {
+            try {
               const res = await axios.get(nextPageUrl, {
                 headers: { "X-Shopify-Access-Token": cleanToken, "Accept": "application/json" },
-                timeout: 30000 
+                timeout: 10000 
               });
               
               const pageOrders = res.data.orders || [];
@@ -585,184 +586,142 @@ export function createApp() {
                 const matches = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
                 if (matches) nextPageUrl = matches[1];
               }
-              
               if (pageOrders.length < 250) break;
+            } catch (e) {
+              console.error(`Page fetch failed for ${store.name}:`, e);
+              break; 
             }
-            
-            shopifyOrders = allStoreOrders;
-            totalOrdersFetched += shopifyOrders.length;
+          }
+          
+          shopifyOrders = allStoreOrders;
+          totalOrdersFetched += shopifyOrders.length;
 
-            // Pre-index orders for faster matching
-            for (const order of shopifyOrders) {
+          for (const order of shopifyOrders) {
+            const landing = (order.landing_site || "").toLowerCase();
+            const referring = (order.referring_site || "").toLowerCase();
+            const note = (order.note || "").toLowerCase();
+            const tags = (order.tags || "").toLowerCase();
+            const noteAttrsStr = (order.note_attributes || [])
+              .map((attr: any) => `${attr.name}:${attr.value}`)
+              .join(" ")
+              .toLowerCase();
+
+            const combinedText = `${landing} ${referring} ${note} ${tags} ${noteAttrsStr}`;
+
+            for (const emp of employees || []) {
+              if (emp.identifier && combinedText.includes(emp.identifier.toLowerCase())) {
+                const ident = emp.identifier.toLowerCase();
+                if (!ordersByIdentifier.has(ident)) ordersByIdentifier.set(ident, []);
+                ordersByIdentifier.get(ident)!.push(order);
+              }
+            }
+          }
+        } catch (e: any) {
+          storeErrors.push({ store: store.name, error: e.message });
+        }
+      }
+
+      const adFetchPromises = (store.ad_accounts || []).map(async (adAccount: any) => {
+        try {
+          let actId = adAccount.ad_account_id;
+          if (!actId.startsWith("act_")) actId = `act_${actId}`;
+
+          const [cRes, iRes] = await Promise.all([
+            axios.get(`https://graph.facebook.com/v19.0/${actId}/campaigns`, { params: { access_token: store.meta_access_token, fields: "name,status,start_time", limit: 1000 }, timeout: 15000 }),
+            axios.get(`https://graph.facebook.com/v19.0/${actId}/insights`, { params: { access_token: store.meta_access_token, level: "campaign", fields: "campaign_id,spend,purchase_roas,actions", time_range: JSON.stringify({ since, until }) }, timeout: 15000 })
+          ]);
+
+          const campaignsList = cRes.data.data || [];
+          const insights = iRes.data.data || [];
+
+          for (const insight of insights) {
+            const spend = parseFloat(insight.spend || "0");
+            if (spend <= 0) continue;
+
+            const camp = campaignsList.find((c: any) => c.id === insight.campaign_id);
+            const campName = camp?.name || "Unknown";
+            const matchedEmployee = employees?.find(emp => emp.identifier && campName.toLowerCase().includes(emp.identifier.toLowerCase()));
+
+            if (employeeId && matchedEmployee?.id !== employeeId) continue;
+
+            let shopifyRevenue = 0, shopifyConfirmed = 0, shopifyPending = 0, shopifyCancelled = 0;
+            const ident = matchedEmployee?.identifier?.toLowerCase();
+            const campIdStr = String(insight.campaign_id);
+
+            const candidateOrders = new Set<any>();
+            if (ident && ordersByIdentifier.has(ident)) {
+              ordersByIdentifier.get(ident)!.forEach(o => candidateOrders.add(o));
+            }
+            const ordersToScan = candidateOrders.size > 0 ? Array.from(candidateOrders) : shopifyOrders;
+
+            for (const order of ordersToScan) {
+              const orderDateStr = order.created_at.split('T')[0];
+              if (orderDateStr < since || orderDateStr > until) continue;
+
               const landing = (order.landing_site || "").toLowerCase();
               const referring = (order.referring_site || "").toLowerCase();
               const note = (order.note || "").toLowerCase();
               const tags = (order.tags || "").toLowerCase();
-              const noteAttrsStr = (order.note_attributes || [])
-                .map((attr: any) => `${attr.name}:${attr.value}`)
-                .join(" ")
-                .toLowerCase();
+              const noteAttrsStr = (order.note_attributes || []).map((attr: any) => `${attr.name}:${attr.value}`).join(" ").toLowerCase();
+              
+              const isIdMatch = landing.includes(campIdStr) || referring.includes(campIdStr) || note.includes(campIdStr) || tags.includes(campIdStr) || noteAttrsStr.includes(campIdStr);
+              const isNameMatch = campName !== "Unknown" && (landing.includes(campName.toLowerCase().replace(/\s+/g, "_")) || landing.includes(campName.toLowerCase().replace(/\s+/g, "-")));
 
-              const combinedText = `${landing} ${referring} ${note} ${tags} ${noteAttrsStr}`;
-
-              // Index by Campaign ID if found
-              for (const emp of employees || []) {
-                if (emp.identifier && combinedText.includes(emp.identifier.toLowerCase())) {
-                  const ident = emp.identifier.toLowerCase();
-                  if (!ordersByIdentifier.has(ident)) ordersByIdentifier.set(ident, []);
-                  ordersByIdentifier.get(ident)!.push(order);
-                }
+              if (isIdMatch || isNameMatch || (ident && (landing.includes(ident) || tags.includes(ident)))) {
+                const totalPrice = parseFloat(order.total_price || "0");
+                if (order.cancelled_at) { shopifyCancelled++; }
+                else if (order.fulfillment_status === "fulfilled") { shopifyConfirmed++; shopifyRevenue += totalPrice; }
+                else { shopifyPending++; shopifyRevenue += totalPrice; }
               }
-
-              // We'll extract IDs later or do a more efficient check
             }
 
-            console.log(`[Performance API] ${store.name}: Indexed ${shopifyOrders.length} orders.`);
-          } catch (e: any) {
-            const status = e.response?.status;
-            let msg = e.message;
-            if (status === 401) {
-              msg = "Invalid Shopify Access Token (401).";
-            }
-            storeErrors.push({ store: store.name, error: msg, status });
+            const metaRoas = parseFloat(insight.purchase_roas?.[0]?.value || "0");
+            const metaRevenue = spend * metaRoas;
+            const metaPurchases = parseInt(insight.actions?.find((a: any) => a.action_type === "purchase")?.value || "0");
+
+            allCampaigns.push({
+              id: insight.campaign_id,
+              name: campName,
+              status: camp?.status || "UNKNOWN",
+              start_date: camp?.start_time || since,
+              spend,
+              revenue: metaRevenue,
+              confirmed_orders: metaPurchases,
+              shopify_revenue: shopifyRevenue,
+              shopify_confirmed: shopifyConfirmed,
+              shopify_pending: shopifyPending,
+              shopify_cancelled: shopifyCancelled,
+              meta_revenue: metaRevenue,
+              meta_purchases: metaPurchases,
+              store_name: store.name,
+              buyer_name: matchedEmployee?.full_name || "Unassigned",
+              employee_id: matchedEmployee?.id || null,
+              store_id: store.id,
+              is_shopify_matched: (shopifyConfirmed + shopifyPending + shopifyCancelled) > 0
+            });
           }
-        }
-
-        for (const adAccount of store.ad_accounts) {
-          fetchPromises.push((async () => {
-            try {
-              let actId = adAccount.ad_account_id;
-              if (!actId.startsWith("act_")) actId = `act_${actId}`;
-
-              const [cRes, iRes] = await Promise.all([
-                axios.get(`https://graph.facebook.com/v19.0/${actId}/campaigns`, { params: { access_token: store.meta_access_token, fields: "name,status,start_time", limit: 1000 } }),
-                axios.get(`https://graph.facebook.com/v19.0/${actId}/insights`, { params: { access_token: store.meta_access_token, level: "campaign", fields: "campaign_id,spend,purchase_roas,actions", time_range: JSON.stringify({ since, until }) } })
-              ]);
-
-              const campaigns = cRes.data.data || [];
-              const insights = iRes.data.data || [];
-
-              for (const insight of insights) {
-                const spend = parseFloat(insight.spend || "0");
-                if (spend <= 0) continue;
-
-                const camp = campaigns.find((c: any) => c.id === insight.campaign_id);
-                const campName = camp?.name || "Unknown";
-                const matchedEmployee = employees?.find(emp => emp.identifier && campName.toLowerCase().includes(emp.identifier.toLowerCase()));
-
-                if (employeeId && matchedEmployee?.id !== employeeId) continue;
-
-                let shopifyRevenue = 0, shopifyConfirmed = 0, shopifyPending = 0, shopifyCancelled = 0;
-                const ident = matchedEmployee?.identifier?.toLowerCase();
-                const campIdStr = String(insight.campaign_id);
-
-                // Use the indexed orders
-                const candidateOrders = new Set<any>();
-                
-                // Add orders matched by identifier
-                if (ident && ordersByIdentifier.has(ident)) {
-                  ordersByIdentifier.get(ident)!.forEach(o => candidateOrders.add(o));
-                }
-
-                // Search for internal ID matches in the remaining (if needed) or just scan once
-                // For now, let's just use the candidate set to save time
-                // If the set is empty, we fallback to a faster scan of all orders
-                const ordersToScan = candidateOrders.size > 0 ? Array.from(candidateOrders) : shopifyOrders;
-
-                for (const order of ordersToScan) {
-                  const orderDateStr = order.created_at.split('T')[0];
-                  if (orderDateStr < since || orderDateStr > until) continue;
-
-                  const landing = (order.landing_site || "").toLowerCase();
-                  const referring = (order.referring_site || "").toLowerCase();
-                  const note = (order.note || "").toLowerCase();
-                  const tags = (order.tags || "").toLowerCase();
-                  const noteAttrsStr = (order.note_attributes || [])
-                    .map((attr: any) => `${attr.name}:${attr.value}`)
-                    .join(" ")
-                    .toLowerCase();
-                  
-                  const isIdMatch = landing.includes(campIdStr) || 
-                                   referring.includes(campIdStr) || 
-                                   note.includes(campIdStr) || 
-                                   tags.includes(campIdStr) ||
-                                   noteAttrsStr.includes(campIdStr);
-
-                  const isNameMatch = campName !== "Unknown" && (
-                    landing.includes(campName.toLowerCase().replace(/\s+/g, "_")) || 
-                    landing.includes(campName.toLowerCase().replace(/\s+/g, "-")) ||
-                    tags.includes(campName.toLowerCase()) ||
-                    noteAttrsStr.includes(campName.toLowerCase())
-                  );
-
-                  if (isIdMatch || isNameMatch || (ident && (landing.includes(ident) || tags.includes(ident)))) {
-                    const totalPrice = parseFloat(order.total_price || "0");
-                    if (order.cancelled_at) {
-                      shopifyCancelled++;
-                    } else if (order.fulfillment_status === "fulfilled") {
-                      shopifyConfirmed++;
-                      shopifyRevenue += totalPrice;
-                    } else {
-                      shopifyPending++;
-                      shopifyRevenue += totalPrice;
-                    }
-                  }
-                }
-
-                const metaRoas = parseFloat(insight.purchase_roas?.[0]?.value || "0");
-                const metaRevenue = spend * metaRoas;
-                const metaPurchases = parseInt(
-                  insight.actions?.find((a: any) => a.action_type === "purchase")?.value || "0"
-                );
-
-                // No fallback here, just provide raw values for both
-                allCampaigns.push({
-                  id: insight.campaign_id,
-                  name: campName,
-                  status: camp?.status || "UNKNOWN",
-                  start_date: camp?.start_time || since,
-                  spend,
-                  // Primary fields kept as Meta for stability across other screens
-                  revenue: metaRevenue,
-                  confirmed_orders: metaPurchases,
-                  
-                  // Specific Shopify match fields
-                  shopify_revenue: shopifyRevenue,
-                  shopify_confirmed: shopifyConfirmed,
-                  shopify_pending: shopifyPending,
-                  shopify_cancelled: shopifyCancelled,
-                  
-                  // Raw Meta fields
-                  meta_revenue: metaRevenue,
-                  meta_purchases: metaPurchases,
-                  
-                  store_name: store.name,
-                  buyer_name: matchedEmployee?.full_name || "Unassigned",
-                  employee_id: matchedEmployee?.id || null,
-                  store_id: store.id,
-                  is_shopify_matched: (shopifyConfirmed + shopifyPending + shopifyCancelled) > 0
-                });
-              }
-            } catch (e) {}
-          })());
-        }
-      }
-
-      await Promise.all(fetchPromises);
-      performanceCache.set(cacheKey, { data: allCampaigns, timestamp: Date.now() });
-      res.json({ 
-        success: true, 
-        data: allCampaigns,
-        _debug: { 
-          orders_fetched: totalOrdersFetched, 
-          time_range: { since, until },
-          store_errors: storeErrors
+        } catch (e: any) {
+          console.error(`Ad fetch failed for store ${store.name}:`, e.message);
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
+
+      await Promise.all(adFetchPromises);
+    });
+
+    // Run store fetches in parallel but catch results
+    await Promise.allSettled(storeFetchPromises);
+
+    performanceCache.set(cacheKey, { data: allCampaigns, timestamp: Date.now() });
+    res.json({ 
+      success: true, 
+      data: allCampaigns,
+      _debug: { orders_fetched: totalOrdersFetched, time_range: { since, until }, store_errors: storeErrors }
+    });
+  } catch (error: any) {
+    console.error("[Performance API Error]", error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
+  }
+});
 
   return app;
 }

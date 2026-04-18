@@ -269,12 +269,18 @@ export default function Dashboard() {
     return index !== -1 ? index + 1 : null;
   }, [employeePerformance, profile]);
 
-  const totalEmployees = useMemo(() => {
-    if (profile?.role === 'employee') {
-      return agencyEmployeeCount || employeePerformance.length;
+  const totalEmployeesCount = useMemo(() => {
+    // Start with physical employees in agency
+    let total = agencyEmployeeCount;
+    
+    // If there are unassigned campaigns with performance, treat "Unassigned" as another competitor
+    const hasUnassignedPerformance = employeePerformance.some(e => e.name === 'Unassigned' && e.revenue > 0);
+    if (hasUnassignedPerformance) {
+      total += 1;
     }
-    return employeePerformance.length;
-  }, [employeePerformance, agencyEmployeeCount, profile]);
+    
+    return total || employeePerformance.length;
+  }, [employeePerformance, agencyEmployeeCount]);
 
   const sortedEmployees = useMemo(() => {
     return [...employeePerformance].sort((a: any, b: any) => {
@@ -447,7 +453,7 @@ export default function Dashboard() {
                   <p className="text-[11px] font-black uppercase tracking-[0.2em] text-primary-foreground/50 mb-4">Enterprise Rank</p>
                   <div className="flex items-baseline gap-4">
                     <span className="text-7xl font-black tracking-tighter">#{myRank || '-'}</span>
-                    <span className="text-xl font-bold opacity-50 tracking-tight">/ {totalEmployees} {totalEmployees === 1 ? 'Strategist' : 'Strategists'}</span>
+                    <span className="text-xl font-bold opacity-50 tracking-tight">/ {totalEmployeesCount} {totalEmployeesCount === 1 ? 'Strategist' : 'Strategists'}</span>
                   </div>
                 </div>
                 <div className="pt-6 border-t border-white/10">
