@@ -93,29 +93,30 @@ export default function Dashboard() {
   const [hasData, setHasData] = useState(false);
   const [dateRange, setDateRange] = useState('last-30-days');
   const [customDates, setCustomDates] = useState({ start: '', end: '' });
-  const [storeEmployeeCount, setStoreEmployeeCount] = useState(0);
+  const [agencyEmployeeCount, setAgencyEmployeeCount] = useState(0);
 
   useEffect(() => {
     if (profile?.agency_id) {
       fetchStats();
-      if (profile.role === 'employee' && profile.store_id) {
-        fetchStoreEmployeeCount();
+      if (profile.role === 'employee') {
+        fetchAgencyEmployeeCount();
       }
     }
-  }, [profile, dateRange]);
+  }, [profile, dateRange, customDates.start, customDates.end]);
 
-  async function fetchStoreEmployeeCount() {
+  async function fetchAgencyEmployeeCount() {
     try {
       const { count, error } = await supabase
         .from('profiles')
         .select('*', { count: 'exact', head: true })
-        .eq('store_id', profile?.store_id);
+        .eq('agency_id', profile?.agency_id)
+        .eq('role', 'employee');
       
       if (!error && count !== null) {
-        setStoreEmployeeCount(count);
+        setAgencyEmployeeCount(count);
       }
     } catch (e) {
-      console.error('Error fetching store employee count:', e);
+      console.error('Error fetching agency employee count:', e);
     }
   }
 
@@ -270,10 +271,10 @@ export default function Dashboard() {
 
   const totalEmployees = useMemo(() => {
     if (profile?.role === 'employee') {
-      return storeEmployeeCount || employeePerformance.length;
+      return agencyEmployeeCount || employeePerformance.length;
     }
     return employeePerformance.length;
-  }, [employeePerformance, storeEmployeeCount, profile]);
+  }, [employeePerformance, agencyEmployeeCount, profile]);
 
   const sortedEmployees = useMemo(() => {
     return [...employeePerformance].sort((a: any, b: any) => {
@@ -451,7 +452,7 @@ export default function Dashboard() {
                 </div>
                 <div className="pt-6 border-t border-white/10">
                   <p className="text-sm font-medium leading-relaxed opacity-90 max-w-md">
-                    You are currently ranked <span className="font-black underline decoration-white/30 underline-offset-4">#{myRank || '?'}</span> across your assigned store fleet. Optimize your CPR and scale ROAS to climb the leaderboard.
+                    You are currently ranked <span className="font-black underline decoration-white/30 underline-offset-4">#{myRank || '?'}</span> across the entire agency fleet. Optimize your CPR and scale ROAS to climb the leaderboard.
                   </p>
                 </div>
               </div>

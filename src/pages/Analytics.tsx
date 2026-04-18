@@ -71,7 +71,7 @@ export default function Analytics() {
       fetchEmployees();
       fetchData();
     }
-  }, [profile, dateRange]);
+  }, [profile, dateRange, customDates.start, customDates.end]);
 
   async function fetchEmployees() {
     const { data } = await supabase
