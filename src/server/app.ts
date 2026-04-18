@@ -513,17 +513,17 @@ export function createApp() {
             let nextPageUrl: string | null = `https://${cleanDomain}/admin/api/2024-04/orders.json?status=any&created_at_min=${shopifySince}&limit=250`;
             let pagesFetched = 0;
 
-            while (nextPageUrl && pagesFetched < 4) {
+            // Fetch all pages for the requested date range (Safety limit of 50 pages/12.5k orders)
+            while (nextPageUrl && pagesFetched < 50) {
               const res = await axios.get(nextPageUrl, {
                 headers: { "X-Shopify-Access-Token": cleanToken, "Accept": "application/json" },
-                timeout: 15000
+                timeout: 30000 // 30s timeout per page request
               });
               
               const pageOrders = res.data.orders || [];
               allStoreOrders = [...allStoreOrders, ...pageOrders];
               pagesFetched++;
 
-              // Handle link header for pagination
               const linkHeader = res.headers['link'];
               nextPageUrl = null;
               if (linkHeader) {
@@ -531,12 +531,12 @@ export function createApp() {
                 if (matches) nextPageUrl = matches[1];
               }
               
-              if (pageOrders.length < 250) break; // No more orders on this filter
+              if (pageOrders.length < 250) break;
             }
             
             shopifyOrders = allStoreOrders;
             totalOrdersFetched += shopifyOrders.length;
-            console.log(`[Performance API] ${store.name}: Fetched ${shopifyOrders.length} Shopify orders (${pagesFetched} pages) for matching.`);
+            console.log(`[Performance API] ${store.name}: Fetched ALL orders in range (${shopifyOrders.length} orders, ${pagesFetched} pages).`);
           } catch (e: any) {
             const status = e.response?.status;
             let msg = e.message;

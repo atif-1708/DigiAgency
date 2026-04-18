@@ -116,11 +116,18 @@ export default function Analytics() {
       if (!result.success) throw new Error(result.error);
 
       // Process campaigns to calculate CPR correctly
-      const processed = (result.data || []).map((camp: any) => ({
-        ...camp,
-        cpr: camp.confirmed_orders > 0 ? camp.spend / camp.confirmed_orders : 0,
-        roas: camp.spend > 0 ? camp.revenue / camp.spend : 0
-      }));
+      const processed = (result.data || []).map((camp: any) => {
+        const totalShopify = (camp.shopify_confirmed || 0) + (camp.shopify_pending || 0) + (camp.shopify_cancelled || 0);
+        return {
+          ...camp,
+          cpr: camp.meta_purchases > 0 ? camp.spend / camp.meta_purchases : 0,
+          roas: camp.spend > 0 ? camp.meta_revenue / camp.spend : 0,
+          total_shopify: totalShopify,
+          shopify_cpr: totalShopify > 0 ? camp.spend / totalShopify : 0,
+          confirmed_cpr: camp.shopify_confirmed > 0 ? camp.spend / camp.shopify_confirmed : 0,
+          confirmation_rate: totalShopify > 0 ? (camp.shopify_confirmed / totalShopify) * 100 : 0
+        };
+      });
 
       setCampaigns(processed);
     } catch (error: any) {
@@ -441,22 +448,26 @@ export default function Analytics() {
                 <TableHead className="pl-6">Campaign</TableHead>
                 <TableHead>Buyer</TableHead>
                 <TableHead className="text-right">Spend</TableHead>
-                <TableHead className="text-right">CPR</TableHead>
+                <TableHead className="text-right text-muted-foreground font-normal">Meta CPR</TableHead>
                 <TableHead className="text-right">ROAS</TableHead>
-                <TableHead className="text-right">Orders</TableHead>
-                <TableHead className="text-right pr-6">Performance</TableHead>
+                <TableHead className="text-right">Meta Orders</TableHead>
+                <TableHead className="text-right text-primary font-bold">Shopify Orders</TableHead>
+                <TableHead className="text-right text-green-600">Confirmed</TableHead>
+                <TableHead className="text-right text-amber-600">Pending</TableHead>
+                <TableHead className="text-right text-red-600">Cancelled</TableHead>
+                <TableHead className="text-right pr-6">Conf %</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-64 text-center">
+                  <TableCell colSpan={11} className="h-64 text-center">
                     <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
                   </TableCell>
                 </TableRow>
               ) : filteredCampaigns.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-64 text-center text-muted-foreground italic">
+                  <TableCell colSpan={11} className="h-64 text-center text-muted-foreground italic">
                     No campaigns match the selected filters.
                   </TableCell>
                 </TableRow>
@@ -465,36 +476,42 @@ export default function Analytics() {
                   <TableRow key={camp.id} className="hover:bg-accent/30 border-muted transition-colors">
                     <TableCell className="pl-6 py-4">
                       <div className="flex flex-col">
-                        <span className="font-bold text-sm">{camp.name}</span>
-                        <span className="text-xs text-muted-foreground">{camp.store_name}</span>
+                        <span className="font-bold text-sm tracking-tight">{camp.name}</span>
+                        <span className="text-[10px] text-muted-foreground uppercase">{camp.store_name}</span>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="font-normal text-[10px] uppercase tracking-tight">
+                      <Badge variant="outline" className="font-normal text-[9px] uppercase tracking-tight py-0">
                         {camp.buyer_name}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right font-mono text-xs">Rs {camp.spend.toLocaleString()}</TableCell>
-                    <TableCell className="text-right font-mono font-bold">Rs {camp.cpr.toFixed(0)}</TableCell>
+                    <TableCell className="text-right font-mono text-[10px]">Rs {camp.spend.toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-mono text-muted-foreground text-[10px]">Rs {camp.cpr.toFixed(0)}</TableCell>
                     <TableCell className="text-right">
                       <div className={cn(
-                        "font-bold",
+                        "font-bold text-xs",
                         camp.roas >= 2 ? "text-green-500" : camp.roas >= 1.2 ? "text-amber-500" : "text-destructive"
                       )}>
                         {camp.roas.toFixed(2)}x
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">{camp.confirmed_orders}</TableCell>
-                    <TableCell className="text-right pr-6">
-                      <div className="flex justify-end">
-                        {camp.cpr < 150 ? (
-                          <Badge className="bg-green-500 hover:bg-green-600 border-none px-2 rounded-full">Optimal</Badge>
-                        ) : camp.cpr < 300 ? (
-                          <Badge className="bg-amber-500 hover:bg-amber-600 border-none px-2 rounded-full">Scaling</Badge>
-                        ) : (
-                          <Badge className="bg-destructive hover:bg-destructive/90 border-none px-2 rounded-full">Warning</Badge>
-                        )}
+                    <TableCell className="text-right font-medium text-muted-foreground text-xs">{camp.meta_purchases || 0}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex flex-col items-end">
+                        <span className="font-bold text-primary text-xs">{camp.total_shopify}</span>
+                        <span className="text-[9px] text-primary/70 font-mono">CPR: Rs {camp.shopify_cpr.toFixed(0)}</span>
                       </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex flex-col items-end">
+                        <span className="font-bold text-green-600 text-xs">{camp.shopify_confirmed || 0}</span>
+                        <span className="text-[9px] text-green-600/70 font-mono">CPR: Rs {camp.confirmed_cpr.toFixed(0)}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right text-amber-500 font-bold text-xs">{camp.shopify_pending || 0}</TableCell>
+                    <TableCell className="text-right text-red-500 font-bold text-xs">{camp.shopify_cancelled || 0}</TableCell>
+                    <TableCell className="text-right font-bold text-[10px] pr-6">
+                      {camp.confirmation_rate.toFixed(1)}%
                     </TableCell>
                   </TableRow>
                 ))
