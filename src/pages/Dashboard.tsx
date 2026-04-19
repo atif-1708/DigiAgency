@@ -88,7 +88,7 @@ export default function Dashboard() {
   const [chartData, setChartData] = useState<any[]>([]);
   const [storePerformance, setStorePerformance] = useState<any[]>([]);
   const [employeePerformance, setEmployeePerformance] = useState<any[]>([]);
-  const [employeeSortBy, setEmployeeSortBy] = useState('revenue-desc');
+  const [employeeSortBy, setEmployeeSortBy] = useState('rank-desc');
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
   const [dateRange, setDateRange] = useState('last-30-days');
@@ -306,6 +306,7 @@ export default function Dashboard() {
 
   const sortedEmployees = useMemo(() => {
     return [...employeePerformance].sort((a: any, b: any) => {
+      if (employeeSortBy === 'rank-desc') return b.rank_score - a.rank_score;
       if (employeeSortBy === 'revenue-desc') return b.revenue - a.revenue;
       if (employeeSortBy === 'orders-desc') return b.orders - a.orders;
       if (employeeSortBy === 'roas-desc') return b.roas - a.roas;
@@ -498,6 +499,7 @@ export default function Dashboard() {
                   <SelectValue placeholder="Sort By" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="rank-desc">Performance Rank</SelectItem>
                   <SelectItem value="revenue-desc">By Revenue</SelectItem>
                   <SelectItem value="orders-desc">By Orders</SelectItem>
                   <SelectItem value="roas-desc">By ROAS</SelectItem>
@@ -523,7 +525,7 @@ export default function Dashboard() {
                     cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                   />
                   <Bar 
-                    dataKey={employeeSortBy.split('-')[0]} 
+                    dataKey={employeeSortBy.includes('rank') ? 'rank_score' : employeeSortBy.split('-')[0]} 
                     fill="var(--color-primary)" 
                     radius={[0, 4, 4, 0]} 
                     barSize={32} 

@@ -31,6 +31,7 @@ export default function Employees() {
   const { profile } = useAuth();
   const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [performanceRanks, setPerformanceRanks] = useState<Record<string, number>>({});
   const [isAdding, setIsAdding] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -53,10 +54,63 @@ export default function Employees() {
     if (profile?.agency_id || profile?.role === 'super_admin') {
       fetchEmployees();
       fetchStores();
+      fetchPerformance();
     } else {
       setLoading(false);
     }
   }, [profile]);
+
+  async function fetchPerformance() {
+    if (!profile?.agency_id) return;
+    try {
+      const start = new Date();
+      start.setDate(start.getDate() - 30);
+      const params = new URLSearchParams({
+        agencyId: profile.agency_id,
+        startDate: start.toISOString().split('T')[0],
+        endDate: new Date().toISOString().split('T')[0]
+      });
+
+      const res = await fetch(`/api/performance?${params.toString()}`);
+      const result = await res.json();
+      if (!result.success) return;
+
+      const campaigns = result.data || [];
+      const employeeMap: any = {};
+      
+      campaigns.forEach((c: any) => {
+        const empName = c.buyer_name || 'Unassigned';
+        if (!employeeMap[empName]) {
+          employeeMap[empName] = { 
+            name: empName, 
+            confirmed_revenue: 0,
+            spend: 0,
+            campaign_count: 0
+          };
+        }
+        employeeMap[empName].spend += c.spend || 0;
+        employeeMap[empName].campaign_count += 1;
+        
+        const totalShopifyOrders = (c.shopify_confirmed || 0) + (c.shopify_pending || 0) || 1;
+        const confirmedRev = (c.shopify_confirmed || 0) * ((c.shopify_revenue || 0) / totalShopifyOrders);
+        employeeMap[empName].confirmed_revenue += confirmedRev;
+      });
+
+      const scores = Object.values(employeeMap).map((emp: any) => {
+        const confirmedRoas = emp.spend > 0 ? emp.confirmed_revenue / emp.spend : 0;
+        const rankScore = (confirmedRoas * 40) + (emp.campaign_count * 5) + ( (emp.confirmed_revenue / 1000) * 0.5 );
+        return { name: emp.name, score: rankScore };
+      }).sort((a: any, b: any) => b.score - a.score);
+
+      const ranks: Record<string, number> = {};
+      scores.forEach((s: any, idx) => {
+        ranks[s.name] = idx + 1;
+      });
+      setPerformanceRanks(ranks);
+    } catch (e) {
+      console.error('Error fetching performance for ranks:', e);
+    }
+  }
 
   async function fetchStores() {
     const { data } = await supabase
@@ -331,7 +385,8 @@ export default function Employees() {
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent border-muted">
-                <TableHead className="w-[250px] pl-6">Member</TableHead>
+                <TableHead className="w-[80px] pl-6">Rank</TableHead>
+                <TableHead className="w-[250px]">Member</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Store</TableHead>
                 <TableHead>Identifier</TableHead>
@@ -341,7 +396,7 @@ export default function Employees() {
             <TableBody>
               {employees.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={profile?.role !== 'employee' ? 5 : 4} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={profile?.role !== 'employee' ? 6 : 5} className="h-24 text-center text-muted-foreground">
                     No team members found.
                   </TableCell>
                 </TableRow>
@@ -349,6 +404,17 @@ export default function Employees() {
                 employees.map((emp) => (
                   <TableRow key={emp.id} className="hover:bg-accent/30 border-muted transition-colors">
                     <TableCell className="pl-6">
+                      {emp.role === 'employee' ? (
+                        <div className="flex items-center gap-2">
+                           <span className={`text-sm font-black ${performanceRanks[emp.full_name] <= 3 ? 'text-primary' : 'opacity-40'}`}>
+                             #{performanceRanks[emp.full_name] || '--'}
+                           </span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] uppercase font-bold opacity-20">N/A</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <div className="flex items-center gap-3">
                         <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
                           {emp.full_name?.[0] || 'U'}
