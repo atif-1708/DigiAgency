@@ -155,7 +155,9 @@ export default function Analytics() {
 
   const baseFilteredCampaigns = useMemo(() => {
     let base = campaigns.filter(camp => {
-      return selectedEmployee === 'all-employees' || camp.employee_id === selectedEmployee;
+      if (selectedEmployee === 'all-employees') return true;
+      if (selectedEmployee === 'unassigned') return !camp.employee_id;
+      return camp.employee_id === selectedEmployee;
     });
 
     if (activeTab === 'new-campaigns') {
@@ -269,11 +271,14 @@ export default function Analytics() {
             <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
               <SelectTrigger className="w-[180px] h-10 rounded-xl bg-card border-none shadow-sm font-bold text-xs px-4">
                 <SelectValue>
-                  {selectedEmployee === 'all-employees' ? 'All Employees' : employees.find(e => e.id === selectedEmployee)?.full_name}
+                  {selectedEmployee === 'all-employees' ? 'All Employees' : 
+                   selectedEmployee === 'unassigned' ? 'Unassigned' : 
+                   employees.find(e => e.id === selectedEmployee)?.full_name}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl border-none shadow-2xl">
                 <SelectItem value="all-employees">All Employees</SelectItem>
+                <SelectItem value="unassigned">Unassigned</SelectItem>
                 {employees.map(e => (
                   <SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>
                 ))}
