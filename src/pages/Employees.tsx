@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Plus, User, Mail, Hash, Trash2, Edit2, Loader2 } from 'lucide-react';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Plus, User, Mail, Hash, Trash2, Edit2, Loader2, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +30,7 @@ import { toast } from 'sonner';
 export default function Employees() {
   const { profile } = useAuth();
   const [employees, setEmployees] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [performanceRanks, setPerformanceRanks] = useState<Record<string, number>>({});
   const [isAdding, setIsAdding] = useState(false);
@@ -59,6 +60,16 @@ export default function Employees() {
       setLoading(false);
     }
   }, [profile]);
+
+  const filteredEmployees = useMemo(() => {
+    if (!searchTerm) return employees;
+    const lowerSearch = searchTerm.toLowerCase();
+    return employees.filter(emp => 
+      (emp.full_name || '').toLowerCase().includes(lowerSearch) ||
+      (emp.email || '').toLowerCase().includes(lowerSearch) ||
+      (emp.identifier || '').toLowerCase().includes(lowerSearch)
+    );
+  }, [employees, searchTerm]);
 
   async function fetchPerformance() {
     if (!profile?.agency_id) return;
@@ -264,13 +275,29 @@ export default function Employees() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight">Team Management</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight">Team Management</h1>
+            <Badge variant="outline" className="h-6 px-2 rounded-full bg-primary/5 text-primary border-primary/20">
+              {employees.length} Members
+            </Badge>
+          </div>
           <p className="text-muted-foreground">Manage employees and their campaign identifiers.</p>
         </div>
         
-        {profile?.role !== 'employee' && (
+        <div className="flex items-center gap-3">
+          <div className="relative w-full md:w-[300px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input 
+              placeholder="Search by name, email or ID..." 
+              className="pl-9 bg-card/50 border-muted-foreground/20 focus-visible:ring-primary/20"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          {profile?.role !== 'employee' && (
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);
             if (!open) resetForm();
@@ -379,6 +406,7 @@ export default function Employees() {
           </Dialog>
         )}
       </div>
+    </div>
 
       <Card className="border-none shadow-sm bg-card/50 backdrop-blur-sm">
         <CardContent className="p-0">
@@ -394,14 +422,14 @@ export default function Employees() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {employees.length === 0 ? (
+              {filteredEmployees.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={profile?.role !== 'employee' ? 6 : 5} className="h-24 text-center text-muted-foreground">
-                    No team members found.
+                    {searchTerm ? `No results found for "${searchTerm}"` : 'No team members found.'}
                   </TableCell>
                 </TableRow>
               ) : (
-                employees.map((emp) => (
+                filteredEmployees.map((emp) => (
                   <TableRow key={emp.id} className="hover:bg-accent/30 border-muted transition-colors">
                     <TableCell className="pl-6">
                       {emp.role === 'employee' ? (
