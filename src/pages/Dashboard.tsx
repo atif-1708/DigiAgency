@@ -240,18 +240,40 @@ export default function Dashboard() {
         campaigns.forEach((c: any) => {
           const empName = c.buyer_name || 'Unassigned';
           if (!employeeMap[empName]) {
-            employeeMap[empName] = { name: empName, revenue: 0, spend: 0, orders: 0, cpr: 0, roas: 0 };
+            employeeMap[empName] = { 
+              name: empName, 
+              revenue: 0, 
+              spend: 0, 
+              orders: 0, 
+              confirmed_revenue: 0,
+              campaign_count: 0,
+              cpr: 0, 
+              roas: 0 
+            };
           }
           employeeMap[empName].revenue += c.meta_revenue || 0;
           employeeMap[empName].spend += c.spend || 0;
           employeeMap[empName].orders += c.meta_purchases || 0;
+          
+          // Calculate confirmed portion of revenue
+          const totalShopifyOrders = (c.shopify_confirmed || 0) + (c.shopify_pending || 0) || 1;
+          const confirmedRev = (c.shopify_confirmed || 0) * ((c.shopify_revenue || 0) / totalShopifyOrders);
+          employeeMap[empName].confirmed_revenue += confirmedRev;
+          employeeMap[empName].campaign_count += 1;
         });
 
-        const employees = Object.values(employeeMap).map((emp: any) => ({
-          ...emp,
-          cpr: emp.orders > 0 ? emp.spend / emp.orders : 0,
-          roas: emp.spend > 0 ? emp.revenue / emp.spend : 0
-        }));
+        const employees = Object.values(employeeMap).map((emp: any) => {
+          const confirmedRoas = emp.spend > 0 ? emp.confirmed_revenue / emp.spend : 0;
+          // Formula: (Confirmed ROAS * 40) + (Campaign Volume * 30) + (Scaled Revenue Impact * 30)
+          const rankScore = (confirmedRoas * 40) + (emp.campaign_count * 5) + ( (emp.confirmed_revenue / 1000) * 0.5 );
+          
+          return {
+            ...emp,
+            rank_score: rankScore,
+            cpr: emp.orders > 0 ? emp.spend / emp.orders : 0,
+            roas: emp.spend > 0 ? emp.revenue / emp.spend : 0
+          };
+        });
 
         setEmployeePerformance(employees);
       }
@@ -264,7 +286,7 @@ export default function Dashboard() {
 
   const myRank = useMemo(() => {
     if (profile?.role !== 'employee' || !profile?.full_name) return null;
-    const sorted = [...employeePerformance].sort((a: any, b: any) => b.revenue - a.revenue);
+    const sorted = [...employeePerformance].sort((a: any, b: any) => b.rank_score - a.rank_score);
     const index = sorted.findIndex(e => e.name === profile.full_name);
     return index !== -1 ? index + 1 : null;
   }, [employeePerformance, profile]);
