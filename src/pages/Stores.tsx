@@ -25,6 +25,7 @@ export default function Stores() {
   const [isAdding, setIsAdding] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [editingStore, setEditingStore] = useState<any>(null);
+  const [editingAdAccountIds, setEditingAdAccountIds] = useState<string[]>([]);
   const [isUpdating, setIsUpdating] = useState(false);
   
   // Form state
@@ -131,8 +132,9 @@ export default function Stores() {
     }
   }
 
-  async function handleFetchAdAccounts() {
-    if (!newStore.metaAccessToken) {
+  async function handleFetchAdAccounts(isEdit = false) {
+    const token = isEdit ? editingStore?.meta_access_token : newStore.metaAccessToken;
+    if (!token) {
       toast.error('Please enter a Meta Access Token first');
       return;
     }
@@ -142,7 +144,7 @@ export default function Stores() {
       const response = await fetch('/api/meta/ad-accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessToken: newStore.metaAccessToken })
+        body: JSON.stringify({ accessToken: token })
       });
 
       const contentType = response.headers.get("content-type");
@@ -240,13 +242,30 @@ export default function Stores() {
     }
   }
 
+  async function handleOpenEdit(store: any) {
+    setEditingStore(store);
+    setFetchedAdAccounts([]);
+    setEditingAdAccountIds([]);
+    
+    // Fetch currently connected ad accounts
+    const { data, error } = await supabase
+      .from('ad_accounts')
+      .select('ad_account_id')
+      .eq('store_id', store.id);
+    
+    if (!error && data) {
+      setEditingAdAccountIds(data.map(a => a.ad_account_id));
+    }
+  }
+
   async function handleUpdateStore(e: React.FormEvent) {
     e.preventDefault();
     if (!editingStore) return;
 
     setIsUpdating(true);
     try {
-      const { error } = await supabase.from('stores').update({
+      // 1. Update store details
+      const { error: storeError } = await supabase.from('stores').update({
         name: editingStore.name,
         shopify_domain: editingStore.shopify_domain,
         shopify_access_token: editingStore.shopify_access_token,
@@ -255,8 +274,44 @@ export default function Stores() {
         meta_access_token: editingStore.meta_access_token
       }).eq('id', editingStore.id);
 
-      if (error) throw error;
-      toast.success('Store updated successfully');
+      if (storeError) throw storeError;
+
+      // 2. Update ad accounts: This is tricky, we'll do a simple sync
+      // First, get previously linked accounts
+      const { data: currentAccs } = await supabase
+        .from('ad_accounts')
+        .select('ad_account_id')
+        .eq('store_id', editingStore.id);
+      
+      const currentIds = currentAccs?.map(a => a.ad_account_id) || [];
+      
+      // Accounts to add
+      const toAdd = editingAdAccountIds.filter(id => !currentIds.includes(id));
+      // Accounts to remove
+      const toRemove = currentIds.filter(id => !editingAdAccountIds.includes(id));
+
+      if (toRemove.length > 0) {
+        await supabase
+          .from('ad_accounts')
+          .delete()
+          .eq('store_id', editingStore.id)
+          .in('ad_account_id', toRemove);
+      }
+
+      if (toAdd.length > 0) {
+        const adAccountsToInsert = toAdd.map(id => {
+          const accInfo = fetchedAdAccounts.find(a => a.id === id);
+          return {
+            store_id: editingStore.id,
+            ad_account_id: id,
+            name: accInfo?.name || 'Ad Account',
+            status: 'Active'
+          };
+        });
+        await supabase.from('ad_accounts').insert(adAccountsToInsert);
+      }
+
+      toast.success('Store and Ad Accounts updated successfully');
       setEditingStore(null);
       fetchStores();
     } catch (error: any) {
@@ -450,7 +505,7 @@ export default function Stores() {
                         variant="ghost" 
                         size="icon" 
                         className="h-8 w-8 text-muted-foreground hover:text-primary"
-                        onClick={() => setEditingStore(store)}
+                        onClick={() => handleOpenEdit(store)}
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -578,14 +633,59 @@ export default function Stores() {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="edit-metaAccessToken">Meta Access Token</Label>
-                <Input 
-                  id="edit-metaAccessToken" 
-                  type="password"
-                  value={editingStore?.meta_access_token || ''}
-                  onChange={e => setEditingStore({...editingStore, meta_access_token: e.target.value})}
-                  required
-                />
+                <div className="flex gap-2">
+                  <Input 
+                    id="edit-metaAccessToken" 
+                    type="password"
+                    value={editingStore?.meta_access_token || ''}
+                    onChange={e => setEditingStore({...editingStore, meta_access_token: e.target.value})}
+                    required
+                    className="flex-1"
+                  />
+                  <Button 
+                    type="button" 
+                    variant="secondary" 
+                    onClick={() => handleFetchAdAccounts(true)}
+                    disabled={isFetchingAccounts}
+                  >
+                    {isFetchingAccounts ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Fetch'}
+                  </Button>
+                </div>
               </div>
+
+              {(fetchedAdAccounts.length > 0 || editingAdAccountIds.length > 0) && (
+                <div className="grid gap-2">
+                  <Label>Ad Accounts</Label>
+                  <div className="max-h-[200px] overflow-y-auto border rounded-md p-2 space-y-2 bg-background/50">
+                    {/* Combine already connected and freshly fetched accounts for selection */}
+                    {[...new Map([...fetchedAdAccounts, ...editingAdAccountIds.map(id => ({id, name: 'Connected Account'}))].map(item => [item.id, item])).values()].map(acc => (
+                      <div key={acc.id} className="flex items-center space-x-2 p-1 hover:bg-accent/50 rounded transition-colors">
+                        <input
+                          type="checkbox"
+                          id={`edit-acc-${acc.id}`}
+                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          checked={editingAdAccountIds.includes(acc.id)}
+                          onChange={(e) => {
+                            const ids = e.target.checked 
+                              ? [...editingAdAccountIds, acc.id]
+                              : editingAdAccountIds.filter(id => id !== acc.id);
+                            setEditingAdAccountIds(ids);
+                          }}
+                        />
+                        <label 
+                          htmlFor={`edit-acc-${acc.id}`} 
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex-1"
+                        >
+                          {acc.name} <span className="text-xs text-muted-foreground">({acc.id})</span>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    {editingAdAccountIds.length} account(s) selected
+                  </p>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditingStore(null)}>
