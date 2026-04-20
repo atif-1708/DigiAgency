@@ -212,7 +212,7 @@ export default function Dashboard() {
         });
 
         // Group by date for chart (simplified)
-        const grouped = campaigns.reduce((acc: any, c: any) => {
+        const grouped = displayCampaigns.reduce((acc: any, c: any) => {
           const date = new Date(c.start_date || new Date()).toLocaleDateString('en-US', { weekday: 'short' });
           if (!acc[date]) acc[date] = { name: date, spend: 0, revenue: 0, orders: 0 };
           acc[date].spend += c.spend || 0;
@@ -225,7 +225,7 @@ export default function Dashboard() {
 
         // Group by Store Performance
         const storeMap: any = {};
-        campaigns.forEach((c: any) => {
+        displayCampaigns.forEach((c: any) => {
           const storeName = c.store_name || 'Unknown Store';
           if (!storeMap[storeName]) {
             storeMap[storeName] = { name: storeName, revenue: 0, spend: 0 };
