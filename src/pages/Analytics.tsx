@@ -1,5 +1,7 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { toPng } from 'html-to-image';
+import { saveAs } from 'file-saver';
 import { 
   BarChart3, 
   PieChart, 
@@ -17,11 +19,25 @@ import {
   Package,
   CheckCircle2,
   Clock,
-  XCircle
+  XCircle,
+  Calculator,
+  LayoutDashboard,
+  Camera,
+  Search
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogDescription, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogFooter
+} from '@/components/ui/dialog';
 import { 
   Table, 
   TableBody, 
@@ -65,10 +81,18 @@ export default function Analytics() {
   const [selectedCprRange, setSelectedCprRange] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState('cpr-asc');
   const [currentRange, setCurrentRange] = useState({ start: new Date(), end: new Date() });
+  const [stores, setStores] = useState<any[]>([]);
+  const [profitData, setProfitData] = useState<Record<string, any>>({});
+  const [selectedProfitCampaign, setSelectedProfitCampaign] = useState<any>(null);
+  const [tempProfitInputs, setTempProfitInputs] = useState({ productCost: 0, deliveredOrders: 0, sellingPrice: 0 });
+  const [isSavingProfit, setIsSavingProfit] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const profitBreakdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (profile?.agency_id) {
       fetchEmployees();
+      fetchStores();
       fetchData();
     }
   }, [profile, dateRange, customDates.start, customDates.end]);
@@ -80,6 +104,50 @@ export default function Analytics() {
       .eq('agency_id', profile?.agency_id)
       .eq('role', 'employee');
     setEmployees(data || []);
+  }
+
+  async function fetchStores() {
+    const { data } = await supabase.from('stores').select('*').eq('agency_id', profile?.agency_id);
+    setStores(data || []);
+  }
+
+  async function fetchProfitData() {
+    try {
+      const { data } = await supabase
+        .from('campaign_profit_data')
+        .select('*')
+        .eq('agency_id', profile?.agency_id);
+      
+      const mapped: Record<string, any> = {};
+      (data || []).forEach(d => {
+        mapped[d.campaign_id] = d;
+      });
+      setProfitData(mapped);
+    } catch (e) {
+      console.error('Error fetching profit data:', e);
+    }
+  }
+
+  async function handleExportImage() {
+    if (!selectedProfitCampaign) return;
+    setIsSavingProfit(true);
+    try {
+      // 1. Export to image
+      if (profitBreakdownRef.current) {
+        const dataUrl = await toPng(profitBreakdownRef.current, { 
+          backgroundColor: '#ffffff', 
+          quality: 1, 
+          pixelRatio: 3 // Higher quality for the export
+        });
+        saveAs(dataUrl, `profit-breakdown-${selectedProfitCampaign.name}-${new Date().toISOString().split('T')[0]}.png`);
+        toast.success('Financial snapshot exported successfully');
+      }
+      setSelectedProfitCampaign(null);
+    } catch (e: any) {
+      toast.error('Export failed', { description: e.message });
+    } finally {
+      setIsSavingProfit(false);
+    }
   }
 
   async function fetchData(isRefresh = false) {
@@ -146,6 +214,7 @@ export default function Analytics() {
       });
 
       setCampaigns(processed);
+      await fetchProfitData();
     } catch (error: any) {
       toast.error('Failed to fetch analytics data', { description: error.message });
     } finally {
@@ -155,6 +224,9 @@ export default function Analytics() {
 
   const baseFilteredCampaigns = useMemo(() => {
     let base = campaigns.filter(camp => {
+      const matchesSearch = camp.name?.toLowerCase().includes(searchQuery.toLowerCase());
+      if (!matchesSearch) return false;
+      
       if (selectedEmployee === 'all-employees') return true;
       if (selectedEmployee === 'unassigned') return !camp.employee_id;
       return camp.employee_id === selectedEmployee;
@@ -171,7 +243,7 @@ export default function Analytics() {
     }
 
     return base;
-  }, [campaigns, selectedEmployee, activeTab, currentRange]);
+  }, [campaigns, selectedEmployee, activeTab, currentRange, searchQuery]);
 
   const filteredCampaigns = useMemo(() => {
     let result = baseFilteredCampaigns.filter(camp => {
@@ -267,6 +339,16 @@ export default function Analytics() {
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
+          <div className="relative group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground group-focus-within:text-primary transition-colors" />
+            <Input 
+              placeholder="Search campaign name..." 
+              className="pl-9 w-[220px] h-10 rounded-xl bg-card border-none shadow-sm font-medium text-xs focus-visible:ring-1 focus-visible:ring-primary/20"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          
           {profile?.role !== 'employee' && (
             <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
               <SelectTrigger className="w-[180px] h-10 rounded-xl bg-card border-none shadow-sm font-bold text-xs px-4">
@@ -616,6 +698,7 @@ export default function Analytics() {
                 <TableHead className="text-right font-bold uppercase tracking-widest text-[9px]">Pending</TableHead>
                 <TableHead className="text-right font-bold uppercase tracking-widest text-[9px]">Cancelled</TableHead>
                 <TableHead className="text-right pr-6 font-bold uppercase tracking-widest text-[9px]">Conf %</TableHead>
+                <TableHead className="text-center font-bold uppercase tracking-widest text-[9px] w-[50px]">Profit</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -683,6 +766,26 @@ export default function Analytics() {
                     <TableCell className="text-right pr-6">
                       <span className="font-black text-xs">{camp.confirmation_rate.toFixed(0)}%</span>
                     </TableCell>
+                    <TableCell className="text-center whitespace-nowrap">
+                      {profile?.role !== 'employee' && (
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-muted-foreground hover:text-green-600 hover:bg-green-100"
+                          onClick={() => {
+                            const existing = profitData[camp.id] || { product_cost: 0, delivered_orders: camp.shopify_confirmed || 0, selling_price: 0 };
+                            setTempProfitInputs({
+                              productCost: existing.product_cost || 0,
+                              deliveredOrders: existing.delivered_orders || camp.shopify_confirmed || 0,
+                              sellingPrice: existing.selling_price || 0
+                            });
+                            setSelectedProfitCampaign(camp);
+                          }}
+                        >
+                          <Calculator className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -690,6 +793,296 @@ export default function Analytics() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Profit Analysis Dialog */}
+      <Dialog open={!!selectedProfitCampaign} onOpenChange={(open) => !open && setSelectedProfitCampaign(null)}>
+        <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto rounded-2xl border-none shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black tracking-tight flex items-center gap-2">
+              <Calculator className="h-6 w-6 text-green-600" />
+              Profitability Breakdown
+            </DialogTitle>
+            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-70">
+              {selectedProfitCampaign?.name}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedProfitCampaign && (
+            <div className="space-y-6 py-4">
+              {/* Manual Inputs Section */}
+              <div className="grid grid-cols-3 gap-3 p-4 rounded-xl bg-muted/30 border border-muted-foreground/10">
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-primary">Selling Price (Rs)</Label>
+                  <Input 
+                    type="number" 
+                    className="h-10 bg-background font-bold border-primary/20" 
+                    value={tempProfitInputs.sellingPrice}
+                    onChange={e => setTempProfitInputs({...tempProfitInputs, sellingPrice: parseFloat(e.target.value) || 0})}
+                  />
+                  <p className="text-[8px] text-muted-foreground uppercase font-bold px-1">Manual Override</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-widest">Product Cost (Rs)</Label>
+                  <Input 
+                    type="number" 
+                    className="h-10 bg-background font-bold" 
+                    value={tempProfitInputs.productCost}
+                    onChange={e => setTempProfitInputs({...tempProfitInputs, productCost: parseFloat(e.target.value) || 0})}
+                  />
+                  <p className="text-[8px] text-muted-foreground uppercase font-bold px-1">COGS per unit</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-widest">Delivered Orders</Label>
+                  <Input 
+                    type="number" 
+                    className="h-10 bg-background font-bold" 
+                    value={tempProfitInputs.deliveredOrders}
+                    onChange={e => setTempProfitInputs({...tempProfitInputs, deliveredOrders: parseInt(e.target.value) || 0})}
+                  />
+                  <p className="text-[8px] text-muted-foreground uppercase font-bold px-1">Actual Success</p>
+                </div>
+              </div>
+
+              {/* Precise Financial Table (Modelled after image) */}
+              <div 
+                ref={profitBreakdownRef}
+                className="rounded-xl border border-border/50 overflow-hidden text-[11px] bg-background p-1 shadow-sm"
+              >
+                {(() => {
+                  const store = stores.find(s => s.id === selectedProfitCampaign.store_id) || {};
+                  
+                  // Financial Variables
+                  const rawSpend = selectedProfitCampaign.spend || 0;
+                  const adTaxAmount = rawSpend * ((store.meta_ad_tax || 0) / 100);
+                  const totalSpend = rawSpend + adTaxAmount;
+                  
+                  const confirmedQty = tempProfitInputs.deliveredOrders || 0;
+                  const shopifyConfirmedCount = selectedProfitCampaign.shopify_confirmed || 0;
+                  
+                  // Rev logic
+                  const sellingPriceToUse = tempProfitInputs.sellingPrice > 0 
+                    ? tempProfitInputs.sellingPrice 
+                    : (shopifyConfirmedCount > 0 ? selectedProfitCampaign.shopify_revenue / shopifyConfirmedCount : 0);
+                  
+                  const confirmedRevenue = sellingPriceToUse * confirmedQty;
+                  const avgDeliveryAmount = confirmedQty > 0 ? confirmedRevenue / confirmedQty : 0;
+                  
+                  // Expenses
+                  const prodCostTotal = confirmedQty * tempProfitInputs.productCost;
+                  const packingTotal = shopifyConfirmedCount * (store.packing_cost || 0);
+                  const overheadTotal = shopifyConfirmedCount * (store.overhead_cost || 0);
+                  const dcChargesTotal = shopifyConfirmedCount * (store.dc_charges || 0);
+                  const taxAmount = confirmedRevenue * ((store.tax_rate || 0) / 100);
+                  
+                  const totalOperatingExpense = prodCostTotal + packingTotal + overheadTotal + dcChargesTotal + taxAmount;
+                  const grandTotalExpense = totalOperatingExpense + totalSpend;
+                  
+                  const grossProfit = confirmedRevenue - grandTotalExpense;
+
+                  // Breakeven CPR Calculation
+                  // Breakeven is when Profit = 0. So Available Spend = Revenue - Operating Expenses.
+                  // Breakeven CPR = Available Spend / Total Shopify Orders
+                  const availableForSpend = confirmedRevenue - totalOperatingExpense;
+                  const breakevenCpr = (selectedProfitCampaign.total_shopify || 0) > 0 
+                    ? availableForSpend / (selectedProfitCampaign.total_shopify) 
+                    : 0;
+
+                  // Net Profit Calculation (Deducting cost of returned items)
+                  const returnedQty = Math.max(0, shopifyConfirmedCount - confirmedQty);
+                  const returnedItemsCost = returnedQty * (tempProfitInputs.productCost);
+                  const netProfit = grossProfit - returnedItemsCost;
+
+                  const grossProfitPerOrder = confirmedQty > 0 ? grossProfit / confirmedQty : 0;
+                  const netProfitPerOrder = confirmedQty > 0 ? netProfit / confirmedQty : 0;
+                  
+                  return (
+                    <div className="space-y-[1px] bg-border/20">
+                      {/* Product Header (Highly Visible in export) */}
+                      <div className="bg-primary text-primary-foreground p-5 flex flex-col items-center justify-center text-center gap-1.5 shadow-md">
+                        <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-90 border-b border-white/30 pb-0.5 mb-1">
+                          Campaign Financial Breakdown
+                        </span>
+                        <span className="text-lg font-black tracking-tighter uppercase leading-tight">
+                          PRODUCT: {selectedProfitCampaign.name}
+                        </span>
+                        <div className="flex gap-6 mt-1.5 items-center">
+                          <div className="flex flex-col items-center">
+                            <span className="text-[7px] font-bold opacity-50 uppercase">Date Generated</span>
+                            <span className="text-[8px] font-mono font-bold tracking-widest">{new Date().toLocaleDateString('en-GB')}</span>
+                          </div>
+                          <div className="h-6 w-[1px] bg-white/20"></div>
+                          <div className="flex flex-col items-center">
+                            <span className="text-[7px] font-bold opacity-50 uppercase">Store Source</span>
+                            <span className="text-[8px] font-mono font-bold tracking-widest">{selectedProfitCampaign.shopify_domain || 'INTERNAL'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 bg-muted/80 p-2 font-black uppercase tracking-widest text-[9px]">
+                        <span>Description</span>
+                        <span className="text-center">Qty/Rate</span>
+                        <span className="text-right">Amount (Rs)</span>
+                      </div>
+                      
+                      {/* Meta Spend Section */}
+                      <div className="grid grid-cols-3 bg-blue-500/10 p-2 text-blue-700 font-bold border-b border-blue-200">
+                        <div className="flex flex-col">
+                          <span>Total Ad Spend</span>
+                          <span className="text-[7px] opacity-70 uppercase tracking-tighter">Budget Utilization</span>
+                        </div>
+                        <div className="flex flex-col text-center justify-center items-center gap-0.5">
+                          <span className="text-[9px] font-bold">Current CPR: {selectedProfitCampaign.shopify_cpr?.toFixed(0) || 0}</span>
+                          <span className="text-[10px] font-black underline decoration-blue-400">Breakeven: {breakevenCpr.toFixed(0)}</span>
+                        </div>
+                        <span className="text-right self-center">{totalSpend.toLocaleString()}</span>
+                      </div>
+                      {store.meta_ad_tax > 0 && (
+                        <div className="grid grid-cols-3 bg-blue-50/50 p-2 text-[10px] italic text-blue-600">
+                          <span>Raw Spend: {rawSpend.toLocaleString()}</span>
+                          <span className="text-center">Tax:</span>
+                          <span className="text-right">{adTaxAmount.toLocaleString()}</span>
+                        </div>
+                      )}
+
+                      {/* Store Fixed Costs (Per Unity) Info */}
+                      <div className="grid grid-cols-3 bg-card p-2 opacity-60">
+                        <span className="italic uppercase text-[8px] font-bold">Variable Operational Drivers</span>
+                        <span className="text-center">-</span>
+                        <span className="text-right text-[8px] font-bold">Rates Applied</span>
+                      </div>
+
+                      {/* Orders Section */}
+                      <div className="grid grid-cols-3 bg-muted/20 p-2 font-black uppercase tracking-widest text-[8px] opacity-70">
+                        <span>Order Statistics</span>
+                        <span className="text-center">Count / %</span>
+                        <span className="text-right">-</span>
+                      </div>
+                      <div className="grid grid-cols-3 bg-card p-2 text-[10px]">
+                        <span>Total Shopify Orders</span>
+                        <span className="text-center font-bold">{selectedProfitCampaign.total_shopify || 0}</span>
+                        <span className="text-right">100%</span>
+                      </div>
+                      <div className="grid grid-cols-3 bg-card p-2 text-[10px]">
+                        <span>Confirmed Orders</span>
+                        <span className="text-center font-bold text-green-600">{selectedProfitCampaign.shopify_confirmed || 0}</span>
+                        <span className="text-right text-green-600">
+                          {selectedProfitCampaign.total_shopify > 0 
+                            ? ((selectedProfitCampaign.shopify_confirmed / selectedProfitCampaign.total_shopify) * 100).toFixed(1) : 0}%
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 bg-card p-2 text-[10px]">
+                        <span>Cancelled Orders</span>
+                        <span className="text-center font-bold text-red-600">{selectedProfitCampaign.shopify_cancelled || 0}</span>
+                        <span className="text-right text-red-600">
+                          {selectedProfitCampaign.total_shopify > 0 
+                            ? ((selectedProfitCampaign.shopify_cancelled / selectedProfitCampaign.total_shopify) * 100).toFixed(1) : 0}%
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 bg-green-500/5 p-2 text-green-700 font-bold border-y border-green-100 italic">
+                        <span>Success Recovery</span>
+                        <span className="text-center">{confirmedQty} (Delivered)</span>
+                        <span className="text-right">
+                          {selectedProfitCampaign.shopify_confirmed > 0 
+                            ? ((confirmedQty / selectedProfitCampaign.shopify_confirmed) * 100).toFixed(1) : 0}%
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 bg-green-500/10 p-2 text-green-700 font-bold mt-2">
+                        <span>Recovered Revenue</span>
+                        <span className="text-center">{confirmedQty} @ {sellingPriceToUse.toFixed(0)}</span>
+                        <span className="text-right">{confirmedRevenue.toLocaleString()}</span>
+                      </div>
+                      <div className="grid grid-cols-3 bg-card p-2 border-b border-border/50">
+                        <span>Avg. Ticket Size</span>
+                        <span className="text-center">-</span>
+                        <span className="text-right">{avgDeliveryAmount.toFixed(0)}</span>
+                      </div>
+
+                      {/* Operating Expenses */}
+                      <div className="grid grid-cols-3 bg-muted/20 p-2 font-black uppercase tracking-widest text-[8px] opacity-70">
+                        <span>Operating Expenses</span>
+                        <span className="text-center">Driver (Qty)</span>
+                        <span className="text-right">Subtotal</span>
+                      </div>
+                      <div className="grid grid-cols-3 bg-card p-2">
+                        <span>Product Cost (COGS)</span>
+                        <span className="text-center">{confirmedQty}</span>
+                        <span className="text-right">{prodCostTotal.toLocaleString()}</span>
+                      </div>
+                      <div className="grid grid-cols-3 bg-card p-2 text-primary font-semibold">
+                        <span>Overhead Cost</span>
+                        <span className="text-center">{shopifyConfirmedCount}</span>
+                        <span className="text-right">{overheadTotal.toLocaleString()}</span>
+                      </div>
+                      <div className="grid grid-cols-3 bg-card p-2 text-primary font-semibold">
+                        <span>Packing Cost</span>
+                        <span className="text-center">{shopifyConfirmedCount}</span>
+                        <span className="text-right">{packingTotal.toLocaleString()}</span>
+                      </div>
+                      <div className="grid grid-cols-3 bg-card p-2 text-primary font-semibold">
+                        <span>DC Charges</span>
+                        <span className="text-center">{shopifyConfirmedCount}</span>
+                        <span className="text-right">{dcChargesTotal.toLocaleString()}</span>
+                      </div>
+                      <div className="grid grid-cols-3 bg-card p-2">
+                        <span>Courier Tax ({store.tax_rate || 0}%)</span>
+                        <span className="text-center">-</span>
+                        <span className="text-right">{taxAmount.toFixed(0)}</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 bg-primary/5 p-2 font-bold border-t border-primary/10">
+                        <span>Total Operation Cost</span>
+                        <span className="text-center">-</span>
+                        <span className="text-right">{totalOperatingExpense.toLocaleString()}</span>
+                      </div>
+
+                      {/* Returns Section */}
+                      <div className="grid grid-cols-3 bg-red-500/5 p-2 text-red-700 italic border-t border-red-100">
+                        <span>Returned Items Loss</span>
+                        <span className="text-center">{returnedQty} (Units)</span>
+                        <span className="text-right">-{returnedItemsCost.toLocaleString()}</span>
+                      </div>
+
+                      {/* Final Profit Summary */}
+                      <div className="grid grid-cols-3 bg-muted/40 p-2 font-bold border-t border-border/50 text-[10px]">
+                        <span>Gross Profit</span>
+                        <span className="text-center text-primary italic">Rs {grossProfitPerOrder.toFixed(0)} / order</span>
+                        <span className="text-right">Rs {grossProfit.toLocaleString()}</span>
+                      </div>
+
+                      <div className={cn(
+                        "grid grid-cols-3 p-3 font-black text-sm border-t-2 mt-2",
+                        netProfit >= 0 ? "bg-green-600 text-white shadow-inner" : "bg-red-600 text-white shadow-inner"
+                      )}>
+                        <div className="flex flex-col">
+                          <span>NET PROFIT</span>
+                          <div className="bg-white/20 rounded px-1.5 py-0.5 mt-1 inline-block w-fit border border-white/30 backdrop-blur-sm">
+                            <span className="text-[10px] font-black leading-none">Rs {netProfitPerOrder.toFixed(0)} / order</span>
+                          </div>
+                        </div>
+                        <span className="text-center italic text-[10px] uppercase opacity-80 self-center">ROI: {(grandTotalExpense > 0 ? (netProfit / (grandTotalExpense + returnedItemsCost) * 100) : 0).toFixed(1)}%</span>
+                        <span className="text-right text-base self-center underline decoration-white/30 underline-offset-4">Rs {netProfit.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="pt-2">
+            <Button variant="outline" className="rounded-xl font-bold" onClick={() => setSelectedProfitCampaign(null)}>Cancel</Button>
+            <Button 
+              className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-bold gap-2" 
+              onClick={handleExportImage}
+              disabled={isSavingProfit}
+            >
+              {isSavingProfit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              Export Breakdown Image
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

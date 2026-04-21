@@ -36,7 +36,12 @@ export default function Stores() {
     adAccountIds: [] as string[],
     metaAppId: '',
     metaAppSecret: '',
-    metaAccessToken: ''
+    metaAccessToken: '',
+    overhead_cost: 0,
+    packing_cost: 0,
+    tax_rate: 0,
+    dc_charges: 0,
+    meta_ad_tax: 0
   });
 
   const [fetchedAdAccounts, setFetchedAdAccounts] = useState<any[]>([]);
@@ -187,7 +192,12 @@ export default function Stores() {
         status: 'Connected',
         meta_app_id: newStore.metaAppId,
         meta_app_secret: newStore.metaAppSecret,
-        meta_access_token: newStore.metaAccessToken
+        meta_access_token: newStore.metaAccessToken,
+        overhead_cost: newStore.overhead_cost,
+        packing_cost: newStore.packing_cost,
+        tax_rate: newStore.tax_rate,
+        dc_charges: newStore.dc_charges,
+        meta_ad_tax: newStore.meta_ad_tax
       }).select().single();
 
       if (storeError) throw storeError;
@@ -215,7 +225,12 @@ export default function Stores() {
         adAccountIds: [],
         metaAppId: '',
         metaAppSecret: '',
-        metaAccessToken: ''
+        metaAccessToken: '',
+        overhead_cost: 0,
+        packing_cost: 0,
+        tax_rate: 0,
+        dc_charges: 0,
+        meta_ad_tax: 0
       });
       setFetchedAdAccounts([]);
       fetchStores();
@@ -271,7 +286,12 @@ export default function Stores() {
         shopify_access_token: editingStore.shopify_access_token,
         meta_app_id: editingStore.meta_app_id,
         meta_app_secret: editingStore.meta_app_secret,
-        meta_access_token: editingStore.meta_access_token
+        meta_access_token: editingStore.meta_access_token,
+        overhead_cost: editingStore.overhead_cost || 0,
+        packing_cost: editingStore.packing_cost || 0,
+        tax_rate: editingStore.tax_rate || 0,
+        dc_charges: editingStore.dc_charges || 0,
+        meta_ad_tax: editingStore.meta_ad_tax || 0
       }).eq('id', editingStore.id);
 
       if (storeError) throw storeError;
@@ -469,6 +489,54 @@ export default function Stores() {
                       </p>
                     </div>
                   )}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="overhead">Overhead Cost (Rs)</Label>
+                      <Input 
+                        id="overhead" 
+                        type="number"
+                        value={newStore.overhead_cost}
+                        onChange={e => setNewStore({...newStore, overhead_cost: parseFloat(e.target.value) || 0})}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="packing">Packing Cost (Rs)</Label>
+                      <Input 
+                        id="packing" 
+                        type="number"
+                        value={newStore.packing_cost}
+                        onChange={e => setNewStore({...newStore, packing_cost: parseFloat(e.target.value) || 0})}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="tax">Courier Tax (%)</Label>
+                      <Input 
+                        id="tax" 
+                        type="number"
+                        value={newStore.tax_rate}
+                        onChange={e => setNewStore({...newStore, tax_rate: parseFloat(e.target.value) || 0})}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="dc">DC Charges (Rs)</Label>
+                      <Input 
+                        id="dc" 
+                        type="number"
+                        value={newStore.dc_charges}
+                        onChange={e => setNewStore({...newStore, dc_charges: parseFloat(e.target.value) || 0})}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="meta_ad_tax">Meta Ad Tax (%)</Label>
+                      <Input 
+                        id="meta_ad_tax" 
+                        type="number"
+                        value={newStore.meta_ad_tax}
+                        onChange={e => setNewStore({...newStore, meta_ad_tax: parseFloat(e.target.value) || 0})}
+                      />
+                    </div>
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button type="submit" disabled={isAdding}>
@@ -686,6 +754,54 @@ export default function Stores() {
                   </p>
                 </div>
               )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-overhead">Overhead Cost (Rs)</Label>
+                  <Input 
+                    id="edit-overhead" 
+                    type="number"
+                    value={editingStore?.overhead_cost || 0}
+                    onChange={e => setEditingStore({...editingStore, overhead_cost: parseFloat(e.target.value) || 0})}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-packing">Packing Cost (Rs)</Label>
+                  <Input 
+                    id="edit-packing" 
+                    type="number"
+                    value={editingStore?.packing_cost || 0}
+                    onChange={e => setEditingStore({...editingStore, packing_cost: parseFloat(e.target.value) || 0})}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-tax">Courier Tax (%)</Label>
+                  <Input 
+                    id="edit-tax" 
+                    type="number"
+                    value={editingStore?.tax_rate || 0}
+                    onChange={e => setEditingStore({...editingStore, tax_rate: parseFloat(e.target.value) || 0})}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-dc">DC Charges (Rs)</Label>
+                  <Input 
+                    id="edit-dc" 
+                    type="number"
+                    value={editingStore?.dc_charges || 0}
+                    onChange={e => setEditingStore({...editingStore, dc_charges: parseFloat(e.target.value) || 0})}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-meta-ad-tax">Meta Ad Tax (%)</Label>
+                  <Input 
+                    id="edit-meta-ad-tax" 
+                    type="number"
+                    value={editingStore?.meta_ad_tax || 0}
+                    onChange={e => setEditingStore({...editingStore, meta_ad_tax: parseFloat(e.target.value) || 0})}
+                  />
+                </div>
+              </div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditingStore(null)}>
