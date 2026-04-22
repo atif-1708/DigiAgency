@@ -1001,27 +1001,27 @@ export default function Analytics() {
                       {/* Operating Expenses */}
                       <div className="grid grid-cols-3 bg-muted/20 p-2 font-black uppercase tracking-widest text-[8px] opacity-70">
                         <span>Operating Expenses</span>
-                        <span className="text-center">Driver (Qty)</span>
+                        <span className="text-center">Unit Rate (Rs)</span>
                         <span className="text-right">Subtotal</span>
                       </div>
                       <div className="grid grid-cols-3 bg-card p-2">
                         <span>Product Cost (COGS)</span>
-                        <span className="text-center">{confirmedQty}</span>
+                        <span className="text-center">{tempProfitInputs.productCost}</span>
                         <span className="text-right">{prodCostTotal.toLocaleString()}</span>
                       </div>
                       <div className="grid grid-cols-3 bg-card p-2 text-primary font-semibold">
                         <span>Overhead Cost</span>
-                        <span className="text-center">{shopifyConfirmedCount}</span>
+                        <span className="text-center">{store.overhead_cost || 0}</span>
                         <span className="text-right">{overheadTotal.toLocaleString()}</span>
                       </div>
                       <div className="grid grid-cols-3 bg-card p-2 text-primary font-semibold">
                         <span>Packing Cost</span>
-                        <span className="text-center">{shopifyConfirmedCount}</span>
+                        <span className="text-center">{store.packing_cost || 0}</span>
                         <span className="text-right">{packingTotal.toLocaleString()}</span>
                       </div>
                       <div className="grid grid-cols-3 bg-card p-2 text-primary font-semibold">
                         <span>DC Charges</span>
-                        <span className="text-center">{shopifyConfirmedCount}</span>
+                        <span className="text-center">{store.dc_charges || 0}</span>
                         <span className="text-right">{dcChargesTotal.toLocaleString()}</span>
                       </div>
                       <div className="grid grid-cols-3 bg-card p-2">
