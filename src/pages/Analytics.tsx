@@ -79,7 +79,7 @@ export default function Analytics() {
   const [customDates, setCustomDates] = useState({ start: '', end: '' });
   const [minRoas, setMinRoas] = useState(0);
   const [selectedCprRange, setSelectedCprRange] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState('cpr-asc');
+  const [sortBy, setSortBy] = useState('newest');
   const [currentRange, setCurrentRange] = useState({ start: new Date(), end: new Date() });
   const [stores, setStores] = useState<any[]>([]);
   const [profitData, setProfitData] = useState<Record<string, any>>({});
@@ -262,6 +262,11 @@ export default function Analytics() {
 
     // Handle Sorting
     return [...result].sort((a, b) => {
+      if (sortBy === 'newest') {
+        const dateA = new Date(a.start_date || a.created_at).getTime();
+        const dateB = new Date(b.start_date || b.created_at).getTime();
+        return dateB - dateA;
+      }
       if (sortBy === 'cpr-asc') return a.cpr - b.cpr;
       if (sortBy === 'roas-desc') return b.roas - a.roas;
       if (sortBy === 'orders-desc') return b.confirmed_orders - a.confirmed_orders;
@@ -659,6 +664,7 @@ export default function Analytics() {
                     <SelectValue placeholder="Sort Results" />
                   </SelectTrigger>
                   <SelectContent className="rounded-xl shadow-2xl border-none">
+                    <SelectItem value="newest">Newest First</SelectItem>
                     <SelectItem value="cpr-asc">CPR: Low to High</SelectItem>
                     <SelectItem value="roas-desc">ROAS: High to Low</SelectItem>
                     <SelectItem value="orders-desc">Orders: High to Low</SelectItem>
