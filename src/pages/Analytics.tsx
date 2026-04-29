@@ -84,7 +84,7 @@ export default function Analytics() {
   const [stores, setStores] = useState<any[]>([]);
   const [profitData, setProfitData] = useState<Record<string, any>>({});
   const [selectedProfitCampaign, setSelectedProfitCampaign] = useState<any>(null);
-  const [tempProfitInputs, setTempProfitInputs] = useState({ productCost: 0, deliveredOrders: 0, sellingPrice: 0 });
+  const [tempProfitInputs, setTempProfitInputs] = useState({ productCost: 0, deliveredOrders: 0, sellingPrice: 0, simTotalOrders: 0 });
   const [isSavingProfit, setIsSavingProfit] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const profitBreakdownRef = useRef<HTMLDivElement>(null);
@@ -783,7 +783,8 @@ export default function Analytics() {
                             setTempProfitInputs({
                               productCost: existing.product_cost || 0,
                               deliveredOrders: existing.delivered_orders || camp.shopify_confirmed || 0,
-                              sellingPrice: existing.selling_price || 0
+                              sellingPrice: existing.selling_price || 0,
+                              simTotalOrders: camp.total_shopify || 0
                             });
                             setSelectedProfitCampaign(camp);
                           }}
@@ -816,7 +817,32 @@ export default function Analytics() {
           {selectedProfitCampaign && (
             <div className="space-y-6 py-4">
               {/* Manual Inputs Section */}
-              <div className="grid grid-cols-3 gap-3 p-4 rounded-xl bg-muted/30 border border-muted-foreground/10">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4 rounded-xl bg-muted/30 border border-muted-foreground/10">
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-blue-600">Simulate Orders (Total)</Label>
+                  <Input 
+                    type="number" 
+                    className="h-10 bg-background font-bold border-blue-200" 
+                    value={tempProfitInputs.simTotalOrders}
+                    onChange={e => {
+                      const newTotal = parseInt(e.target.value) || 0;
+                      const actualTotal = selectedProfitCampaign.total_shopify || 1;
+                      const confRate = (selectedProfitCampaign.shopify_confirmed || 0) / actualTotal;
+                      
+                      // If we simulate total orders, we project delivered based on historical performance
+                      // If deliveredOrders was same as shopify_confirmed, we maintain that ratio
+                      const actualConfirmed = selectedProfitCampaign.shopify_confirmed || 1;
+                      const currentDelRate = tempProfitInputs.deliveredOrders / actualConfirmed;
+
+                      setTempProfitInputs({
+                        ...tempProfitInputs, 
+                        simTotalOrders: newTotal,
+                        deliveredOrders: Math.round(newTotal * confRate * currentDelRate)
+                      });
+                    }}
+                  />
+                  <p className="text-[8px] text-muted-foreground uppercase font-bold px-1">Scenario Driver</p>
+                </div>
                 <div className="space-y-1.5">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-primary">Selling Price (Rs)</Label>
                   <Input 
@@ -838,10 +864,10 @@ export default function Analytics() {
                   <p className="text-[8px] text-muted-foreground uppercase font-bold px-1">COGS per unit</p>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-[10px] font-black uppercase tracking-widest">Delivered Orders</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-green-600">Delivered Orders</Label>
                   <Input 
                     type="number" 
-                    className="h-10 bg-background font-bold" 
+                    className="h-10 bg-background font-bold border-green-200" 
                     value={tempProfitInputs.deliveredOrders}
                     onChange={e => setTempProfitInputs({...tempProfitInputs, deliveredOrders: parseInt(e.target.value) || 0})}
                   />
@@ -857,13 +883,16 @@ export default function Analytics() {
                 {(() => {
                   const store = stores.find(s => s.id === selectedProfitCampaign.store_id) || {};
                   
+                  const actualTotal = selectedProfitCampaign.total_shopify || 1;
+                  const simFactor = tempProfitInputs.simTotalOrders > 0 ? (tempProfitInputs.simTotalOrders / actualTotal) : 1;
+
                   // Financial Variables
-                  const rawSpend = selectedProfitCampaign.spend || 0;
+                  const rawSpend = (selectedProfitCampaign.spend || 0) * simFactor;
                   const adTaxAmount = rawSpend * ((store.meta_ad_tax || 0) / 100);
                   const totalSpend = rawSpend + adTaxAmount;
                   
                   const confirmedQty = tempProfitInputs.deliveredOrders || 0;
-                  const shopifyConfirmedCount = selectedProfitCampaign.shopify_confirmed || 0;
+                  const shopifyConfirmedCount = Math.round((selectedProfitCampaign.shopify_confirmed || 0) * simFactor);
                   
                   // Rev logic
                   const sellingPriceToUse = tempProfitInputs.sellingPrice > 0 
@@ -889,8 +918,8 @@ export default function Analytics() {
                   // Breakeven is when Profit = 0. So Available Spend = Revenue - Operating Expenses.
                   // Breakeven CPR = Available Spend / Total Shopify Orders
                   const availableForSpend = confirmedRevenue - totalOperatingExpense;
-                  const breakevenCpr = (selectedProfitCampaign.total_shopify || 0) > 0 
-                    ? availableForSpend / (selectedProfitCampaign.total_shopify) 
+                  const breakevenCpr = tempProfitInputs.simTotalOrders > 0 
+                    ? availableForSpend / (tempProfitInputs.simTotalOrders) 
                     : 0;
 
                   // Net Profit Calculation (Deducting cost of returned items)
@@ -964,32 +993,32 @@ export default function Analytics() {
                         <span className="text-right">-</span>
                       </div>
                       <div className="grid grid-cols-3 bg-card p-2 text-[10px]">
-                        <span>Total Shopify Orders</span>
-                        <span className="text-center font-bold">{selectedProfitCampaign.total_shopify || 0}</span>
-                        <span className="text-right">100%</span>
+                        <span>Simulated Total Orders</span>
+                        <span className="text-center font-bold text-blue-600 italic">{tempProfitInputs.simTotalOrders}</span>
+                        <span className="text-right">Baseline</span>
                       </div>
                       <div className="grid grid-cols-3 bg-card p-2 text-[10px]">
-                        <span>Confirmed Orders</span>
-                        <span className="text-center font-bold text-green-600">{selectedProfitCampaign.shopify_confirmed || 0}</span>
+                        <span>New Confirmed Orders</span>
+                        <span className="text-center font-bold text-green-600">{shopifyConfirmedCount}</span>
                         <span className="text-right text-green-600">
-                          {selectedProfitCampaign.total_shopify > 0 
-                            ? ((selectedProfitCampaign.shopify_confirmed / selectedProfitCampaign.total_shopify) * 100).toFixed(1) : 0}%
+                          {tempProfitInputs.simTotalOrders > 0 
+                            ? ((shopifyConfirmedCount / tempProfitInputs.simTotalOrders) * 100).toFixed(1) : 0}%
                         </span>
                       </div>
                       <div className="grid grid-cols-3 bg-card p-2 text-[10px]">
-                        <span>Cancelled Orders</span>
-                        <span className="text-center font-bold text-red-600">{selectedProfitCampaign.shopify_cancelled || 0}</span>
+                        <span>Simulated Cancelled</span>
+                        <span className="text-center font-bold text-red-600">{Math.round((selectedProfitCampaign.shopify_cancelled || 0) * simFactor)}</span>
                         <span className="text-right text-red-600">
-                          {selectedProfitCampaign.total_shopify > 0 
-                            ? ((selectedProfitCampaign.shopify_cancelled / selectedProfitCampaign.total_shopify) * 100).toFixed(1) : 0}%
+                          {tempProfitInputs.simTotalOrders > 0 
+                            ? (((selectedProfitCampaign.shopify_cancelled || 0) * simFactor / tempProfitInputs.simTotalOrders) * 100).toFixed(1) : 0}%
                         </span>
                       </div>
                       <div className="grid grid-cols-3 bg-green-500/5 p-2 text-green-700 font-bold border-y border-green-100 italic">
                         <span>Success Recovery</span>
                         <span className="text-center">{confirmedQty} (Delivered)</span>
                         <span className="text-right">
-                          {selectedProfitCampaign.shopify_confirmed > 0 
-                            ? ((confirmedQty / selectedProfitCampaign.shopify_confirmed) * 100).toFixed(1) : 0}%
+                          {shopifyConfirmedCount > 0 
+                            ? ((confirmedQty / shopifyConfirmedCount) * 100).toFixed(1) : 0}%
                         </span>
                       </div>
 
